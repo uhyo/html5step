@@ -77,6 +77,8 @@ OnigiriHost.prototype={
 		this.modes=Object.keys(opt.score).map(function(x){opt.score[x].name=x;return opt.score[x]});
 
 		this.event.emit("loadAudio",opt.mediaURI);
+		//矢印ロード
+		this.event.emit("loadArrows",opt.arrowType,opt.arrowImage);
 	},
 	//--render
 	renderTop:true,
@@ -102,6 +104,39 @@ OnigiriHost.prototype={
 			au.play();
 			store.audio=au;
 		});
+		//矢印画像読み込み指令
+		ev.on("loadArrows",function(arrowType,arrowImage){
+			var arrow_images={}, arrow_raw_images={};
+			if(arrowType==="image"){
+				["left_data","up_data","right_data","down_data","space_data"].forEach(function(x){
+					var i=new Image();
+					i.src=arrowImage[x];
+					arrow_images[x]=i;
+				},this);
+				store.arrow_images=arrow_images;
+			}else if(arrowType==="grayimage"){
+				["left_data","up_data","right_data","down_data","space_data"].forEach(function(x){
+					var i=new Image();
+					arrow_raw_images[x]=i;
+
+					arrow_images[x]=i;	//一時的
+
+					i.onload=(function(){
+						//arrow_imagesにはcanvasを入れる
+						var ca=document.createElement("canvas");
+						ca.width=i.naturalWidth;
+						ca.height=i.naturalHeight;
+						var cx=ca.getContext('2d');
+						cx.drawImage(i,0,0);
+						arrow_images[x]=cx;
+					}).bind(this);
+
+					i.src=arrowImage[x];
+				},this);
+				store.arrow_images=arrow_images;
+				store.arrow_raw_images=arrow_raw_images;
+			}
+		});
 		return div;
 	},
 	render:function(view){
@@ -121,6 +156,30 @@ OnigiriHost.prototype={
 		ctx.font=info.font;
 		if(info.color)ctx.fillStyle=info.color;
 		ctx.fillText(str,info.x + (ox?ox:0),info.y+(oy?oy:0));
+	},
+	charString:function(num){
+		if(num==37){
+			return "Left"
+		}else if(num==38){
+			return "Up";
+		}else if(num==39){
+			return "Right";
+		}else if(num==40){
+			return "Down";
+		}else if(num==32){
+			return "Space";
+		}
+		return String.fromCharCode(num);
+	},
+	drawArrow:function(ctx,x,y,arrowname,arrow_images){
+		//矢印を描画
+		var h=this.header;
+		if(h.arrowType=="image" || h.arrowType=="grayimage"){
+			var img=arrow_images[arrowname];
+			ctx.drawImage(img,x,y-img.height);
+		}else{
+			ctx.fillText(h.chars[arrowname],x,y);
+		}
 	},
 
 	//default Header
@@ -380,6 +439,11 @@ function PlayerPanel(game,event,param){
 }
 PlayerPanel.prototype={
 	init:function(game,event,param){
+		var t=this;
+		//パネル起動
+		event.on("openPanel",function(panel){
+			t.panel=panel;
+		});
 	},
 	renderInit:function(view){
 		var h=this.host.header;
@@ -399,30 +463,55 @@ PlayerPanel.prototype={
 		if(this.panel){
 			//パネルがある
 			view.render(this.panel);	//初期化だけ・・・
-			this.panel.renderCanvas(c,ctx);
+			this.panel.renderCanvas(c,ctx,view);
+		}
+	},
+	//--internal
+	openPanel:function(game,mode){
+		if(this.panel){
+			this.panel.event.emit("die");
+		}
+		var con;
+		switch(mode){
+			case "title":
+				con=TitlePanel;
+				break;
+			case "keyconfig":
+				con=KeyConfigPanel;
+				break;
+		}
+		if(con){
+			var panel=game.add(con,{
+				user:this.user,
+				parent:this,
+			});
+			this.event.emit("openPanel",panel);
 		}
 	},
 };
 //------プレイヤーパネルの子になる感じのやつ
-//タイトル
-function TitlePanel(game,event,param){
+function ChildPanel(game,event,param){
 	this.parent=param.parent;
 	this.user=param.user;
+}
+ChildPanel.prototype={
+};
+//タイトル
+function TitlePanel(game,event,param){
+	ChildPanel.apply(this,arguments);
 	//モード選択のindex
 	this.index=0;
 }
-TitlePanel.prototype={
+TitlePanel.prototype=Game.util.extend(ChildPanel,{
 	init:function(game,event,param){
 		var t=this;
 		event.on("changeindex",function(index){
 			t.index=index;
 		});
-
 	},
-	renderInit:function(view){
+	renderInit:function(view,game){
 		//実際は描画しないけど初期化だけしちゃう系
 		var t=this, k=this.user.keys, host=this.parent.host;
-		console.log("in!");
 		this.user.event.on("keydown",khandler);
 		this.event.on("die",function(){
 			t.user.event.removeListener("keydown",khandler);
@@ -449,16 +538,15 @@ TitlePanel.prototype={
 				else t.index=0;
 			}else if(c==k.space_data || c==32){
 				//Space
-				/*if(t.index==-1){
+				if(t.index==-1){
 					//Key Config
-					//上乗せでkeyConfigを開く
-					g.startProcess(g.commands.keyconfig);
+					t.parent.openPanel(game,"keyconfig");
 				}else if(t.index==-2){
 					//Config
 					g.startProcess(g.commands.config);
 				}else{
 					g.startProcess(g.commands.game,{modeindex:t.index});
-				}*/
+				}
 			}else{
 				return;
 			}
@@ -468,7 +556,7 @@ TitlePanel.prototype={
 	render:function(view){
 		view.getItem();
 	},
-	renderCanvas:function(canvas,ctx){
+	renderCanvas:function(canvas,ctx,view){
 		var host=this.parent.host, t=this;
 		var h=host.header;
 		host.writebi(ctx,h.fontinfo.musictitle.title,h.musicTitle.title);
@@ -488,7 +576,67 @@ TitlePanel.prototype={
 			host.writebi(ctx,h.fontinfo.musictitle.mode_desc,"[←↓↑→] to select / Press [Space] to enter");
 		}
 	},
-};
+});
+function KeyConfigPanel(game,event,param){
+	ChildPanel.apply(this,arguments);
+	this.index=0;
+}
+KeyConfigPanel.prototype=Game.util.extend(ChildPanel,{
+	init:function(game,event,param){
+		var t=this;
+		event.on("changeindex",function(index){
+			t.index=index;
+		});
+	},
+	renderInit:function(view,game){
+		//実際は描画しないけど初期化だけしちゃう系
+		var t=this, k=this.user.keys, host=this.parent.host;
+		this.user.event.on("keydown",khandler);
+		this.event.on("die",function(){
+			t.user.event.removeListener("keydown",khandler);
+		});
+		return document.createElement("div");
+		function khandler(c){
+			if(c==27){
+				//Esc
+				//ユーザー側だし・・・
+				localStorage.keys=JSON.stringify(t.user.keys);
+				//トップに戻る
+				t.parent.openPanel(game,"title");
+				return;
+			}
+			var arr=["left_data","down_data","up_data","right_data","space_data"];
+			t.user.keys[arr[t.index]]=c;
+			t.index++;
+			if(t.index>=arr.length)t.index=0;
+			t.event.emit("changeindex",t.index);
+		}
+	},
+	render:function(view){
+		view.getItem();
+	},
+	renderCanvas:function(canvas,ctx,view){
+		var host=this.parent.host, t=this;
+		var h=host.header, st=view.getStore(host);	//hostのデータ
+		var arrow_images;
+		if(h.arrowType=="image"){
+			arrow_images=st.arrow_images;
+		}else if(h.arrowType=="grayimage"){
+			arrow_images=st.arrow_raw_images;
+		}
+
+		["left_data","down_data","up_data","right_data","space_data"].forEach(function(x,i){
+			ctx.fillStyle=h.color.arrow[x];	//hard coding
+			ctx.font=h.font[x];
+			if(t.index==i)ctx.fillStyle="#ff4444";	//hard coding
+
+			host.drawArrow(ctx,h.pos[x],h.arrowy,x,arrow_images);
+			ctx.font=h.font.normal;
+			ctx.fillText(host.charString(t.user.keys[x]),h.pos[x]+5,h.arrowy+40);	//hard coding
+		});
+		host.writebi(ctx,h.fontinfo.keyconfig.message,"Escキーを押すと終了します");
+	},
+});
 // ゲーム開始
 var o=new Onigiri;
 o.init();
