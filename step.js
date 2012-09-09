@@ -84,6 +84,8 @@ OnigiriHost.prototype={
 		this.header=opt;
 		//modeを配列に
 		this.modes=Object.keys(opt.score).map(function(x){opt.score[x].name=x;return opt.score[x]});
+		//ヘッダが取得できた
+		this.event.emit("getHeader",opt);
 
 		//this.event.emit("loadAudio",opt.mediaURI);
 		//矢印ロード
@@ -159,6 +161,14 @@ OnigiriHost.prototype={
 				d.appendChild(view.render(this.users[i]));
 			}
 		}
+	},
+	//ヘッダを使う処理（遅延?）
+	useHeader:function(cb){
+		if(this.header){
+			cb(this.header);
+			return;
+		}
+		this.event.once("getHeader",cb);
 	},
 	//----- client
 	//infoオブジェクトをもとに書き込み ox,oy: もとの位置からのずれ
@@ -441,6 +451,13 @@ OnigiriHost.prototype={
 function PlayerPanel(game,event,param){
 	this.host=param.host;	//OnigiriHost
 	this.user=param.user;
+	//デフォルトコンフィグをセット
+	var c=this.config={};
+	this.host.useHeader(function(h){
+		for(var key in h.defaultConfig){
+			c[key]=h.defaultConfig[key];
+		}
+	});
 }
 PlayerPanel.prototype={
 	init:function(game,event,param){
@@ -485,6 +502,9 @@ PlayerPanel.prototype={
 			case "keyconfig":
 				con=KeyConfigPanel;
 				break;
+			case "config":
+				con=ConfigPanel;
+				break;
 		}
 		if(con){
 			var panel=game.add(con,{
@@ -494,6 +514,13 @@ PlayerPanel.prototype={
 			this.event.emit("openPanel",panel);
 		}
 	},
+	//------
+	//デフォルト コンフィグ
+	confs:[
+		{name:"Reverse",values:["off","on"]},
+		{name:"Speed",values:["x0.5","x1","x1.25","x1.5","x2","x2.5","x3","x4","x5","x7","x10"]},
+		{name:"Correction",values:["-7","-6","-5","-4","-3","-2","-1","0","+1","+2","+3","+4","+5","+6","+7"]},
+	],
 };
 //------プレイヤーパネルの子になる感じのやつ
 function ChildPanel(game,event,param){
@@ -545,7 +572,7 @@ TitlePanel.prototype=Game.util.extend(ChildPanel,{
 					t.parent.openPanel(game,"keyconfig");
 				}else if(t.index==-2){
 					//Config
-					g.startProcess(g.commands.config);
+					t.parent.openPanel(game,"config");
 				}else{
 					g.startProcess(g.commands.game,{modeindex:t.index});
 				}
@@ -643,6 +670,81 @@ KeyConfigPanel.prototype=Game.util.extend(ChildPanel,{
 		});
 		host.writebi(ctx,h.fontinfo.keyconfig.message,"Escキーを押すと終了します");
 	},
+});
+function ConfigPanel(game,event,param){
+	ChildPanel.apply(this,arguments);
+	this.index=0;
+}
+ConfigPanel.prototype=Game.util.extend(ChildPanel,{
+	init:function(game,event,param){
+		var t=this, p=this.parent;
+		event.on("changeindex",function(index){
+			t.index=index;
+		});
+		event.on("setconfig",function(key,value){
+			p.config[key]=value;
+		});
+		this.user.event.on("keydown",khandler);
+		this.event.on("die",function(){
+			t.user.event.removeListener("keydown",khandler);
+		});
+		function khandler(dir,c){
+			if(c===27){
+				//Esc
+				t.parent.openPanel(game,"title");
+				return;
+			}
+			if(dir==="up"){
+				t.index--;
+				if(t.index<0)t.index=0;
+			}else if(dir==="down"){
+				t.index++;
+				if(t.index>=p.confs.length)t.index--;
+			}else if(dir==="space"||dir==="left"||dir==="right"){
+				//変更
+				var name=p.confs[t.index].name;
+				var vi=p.confs[t.index].values.indexOf(p.config[name]);
+				if(dir==="left"){
+					vi--;
+				}else{
+					vi++;
+				}
+				if(vi>=p.confs[t.index].values.length){
+					vi=0;
+				}
+				if(vi<0)vi=p.confs[t.index].values.length-1;
+				//p.config[name]=p.confs[t.index].values[vi];
+				t.event.emit("setconfig",name,p.confs[t.index].values[vi]);
+			}else{
+				return;
+			}
+			t.event.emit("changeindex",t.index);
+		}
+	},
+	renderInit:function(view,game){
+		//実際は描画しないけど初期化だけしちゃう系
+		var t=this, k=this.user.keys, host=this.parent.host, ev=this.event;
+		return document.createElement("div");
+	},
+	render:function(view){
+		view.getItem();
+	},
+	renderCanvas:function(canvas,ctx,view){
+		var host=this.parent.host, t=this, p=this.parent;
+		var h=host.header, st=view.getStore(host);	//hostのデータ
+		if(!h)return;
+		p.confs.forEach(function(x,i){
+			var px=80, py=80+30*i;
+			ctx.fillStyle=h.color.color;
+			ctx.font=h.font.normal;
+			if(t.index==i)ctx.fillStyle="#ff4444";	//hard coding
+			ctx.fillText(x.name,px,py);
+
+			ctx.fillText(p.config[x.name],px+150,py);	//hard coding
+		},this);
+		host.writebi(ctx,h.fontinfo.keyconfig.message,"[Space][←][→]:変更　[Esc]:終了");
+	},
+	//---
 });
 // ゲーム開始
 var o=new Onigiri;
