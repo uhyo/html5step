@@ -19,14 +19,26 @@ Onigiri.prototype={
 
 			//キー入力をユーザーへ流す
 			user.addEventListener("keydown",function(e){
-				user.event.emit("keydown",e.keyCode);
+				//方向情報をアレする
+				var c=e.keyCode, k=user.keys;
+				var direction= c===k.left_data || c===37? "left" :
+				               c===k.up_data || c===38? "up" :
+				               c===k.right_data || c===39? "right" :
+				               c===k.down_data || c===40? "down" :
+				               c===k.space_data || c===32? "space" : "";
+
+				user.event.emit("keydown",direction,e.keyCode);
 				e.preventDefault();
 			},false);
 		});
 		//ゲームの初期化
 		game.event.on("gamestart",function(){
 			var host=game.add(OnigiriHost);
-			host.event.emit("loadHeader","header.json");
+			//host.event.emit("loadHeader","header.json");
+			game.readFile("header.json",function(data){
+				var j=JSON.parse(data);	//ヘッダーを読み込んだ
+				host.event.emit("loadHeader",j);
+			});
 			//ユーザー出現
 			game.event.on("entry",function(user){
 				var panel=game.add(PlayerPanel,{
@@ -34,6 +46,7 @@ Onigiri.prototype={
 					user:user,
 				});
 				host.event.emit("addPlayer",panel);
+				panel.openPanel(game,"title");
 			});
 		});
 		game.init(Game.ClientDOMView);
@@ -48,12 +61,8 @@ function OnigiriHost(game,event,param){
 OnigiriHost.prototype={
 	init:function(game,event,param){
 		var t=this;
-		event.on("loadHeader",function(filename){
-			game.readFile(filename,function(data){
-				var j=JSON.parse(data);
-				//headが読み込まれた
-				t.setHeader(j);
-			});
+		event.on("loadHeader",function(h){
+			t.setHeader(h);
 		});
 		//プレイヤー追加
 		event.on("addPlayer",function(panel){
@@ -76,9 +85,9 @@ OnigiriHost.prototype={
 		//modeを配列に
 		this.modes=Object.keys(opt.score).map(function(x){opt.score[x].name=x;return opt.score[x]});
 
-		this.event.emit("loadAudio",opt.mediaURI);
+		//this.event.emit("loadAudio",opt.mediaURI);
 		//矢印ロード
-		this.event.emit("loadArrows",opt.arrowType,opt.arrowImage);
+		//this.event.emit("loadArrows",opt.arrowType,opt.arrowImage);
 	},
 	//--render
 	renderTop:true,
@@ -88,11 +97,16 @@ OnigiriHost.prototype={
 		var div=document.createElement("div");
 		//イベント
 		//オーディオ読み込み指令
-		ev.on("loadAudio",function(uri){
+		return div;
+	},
+	render:function(view){
+		var d=view.getItem(), store=view.getStore(), h=this.header;
+		//リソース読み込み
+		if(!store.audio && h){
 			var au=new Audio();
 			au.preload="auto";
 			au.autoplay=true;	//自動読み込み有効にするため
-			au.src=uri;
+			au.src=h.mediaURI;
 			au.muted=true;
 			au.hidden=true;
 			//プレイ時は止める
@@ -103,18 +117,18 @@ OnigiriHost.prototype={
 			},false);
 			au.play();
 			store.audio=au;
-		});
-		//矢印画像読み込み指令
-		ev.on("loadArrows",function(arrowType,arrowImage){
+		}
+		if(!store.arrow_images && h){
 			var arrow_images={}, arrow_raw_images={};
-			if(arrowType==="image"){
+			var arrowImage=h.arrowImage;
+			if(h.arrowType==="image"){
 				["left_data","up_data","right_data","down_data","space_data"].forEach(function(x){
 					var i=new Image();
 					i.src=arrowImage[x];
 					arrow_images[x]=i;
 				},this);
 				store.arrow_images=arrow_images;
-			}else if(arrowType==="grayimage"){
+			}else if(h.arrowType==="grayimage"){
 				["left_data","up_data","right_data","down_data","space_data"].forEach(function(x){
 					var i=new Image();
 					arrow_raw_images[x]=i;
@@ -136,14 +150,10 @@ OnigiriHost.prototype={
 				store.arrow_images=arrow_images;
 				store.arrow_raw_images=arrow_raw_images;
 			}
-		});
-		return div;
-	},
-	render:function(view){
-		var d=view.getItem();
+		}
 		while(d.hasChildNodes())d.removeChild(d.firstChild);
 
-		if(this.header){
+		if(h){
 			//子どもたちを入れる
 			for(var i=0,l=this.users.length;i<l;i++){
 				d.appendChild(view.render(this.users[i]));
@@ -431,11 +441,6 @@ OnigiriHost.prototype={
 function PlayerPanel(game,event,param){
 	this.host=param.host;	//OnigiriHost
 	this.user=param.user;
-	//タイトル画面を表示させる
-	this.panel=game.add(TitlePanel,{
-		user:this.user,
-		parent:this,
-	});
 }
 PlayerPanel.prototype={
 	init:function(game,event,param){
@@ -450,6 +455,7 @@ PlayerPanel.prototype={
 		//canvasを作る
 		var c=document.createElement("canvas");
 		c.width=h.canvas.x, c.height=h.canvas.y;
+		console.log(this);
 		return c;
 	},
 	render:function(view){
@@ -504,39 +510,35 @@ function TitlePanel(game,event,param){
 }
 TitlePanel.prototype=Game.util.extend(ChildPanel,{
 	init:function(game,event,param){
-		var t=this;
+		var t=this, user=this.user, host=this.parent.host;
 		event.on("changeindex",function(index){
 			t.index=index;
 		});
-	},
-	renderInit:function(view,game){
-		//実際は描画しないけど初期化だけしちゃう系
-		var t=this, k=this.user.keys, host=this.parent.host;
-		this.user.event.on("keydown",khandler);
-		this.event.on("die",function(){
-			t.user.event.removeListener("keydown",khandler);
+		user.event.on("keydown",khandler);
+		event.on("die",function(){
+			user.event.removeListener("keydown",khandler);
 		});
-		return document.createElement("div");
-		function khandler(c){
-			if(c==k.up_data || c==38){
+
+		function khandler(dir,c){
+			if(dir==="up"){
 				//↑
 				if(t.index>=0){
 					t.index=Math.max(0,t.index-1);
 				}else{
 					t.index=Math.min(-1,t.index+1);
 				}
-			}else if(c==k.down_data || c==40){
+			}else if(dir==="down"){
 				//↓
 				if(t.index>=0){
 					t.index=Math.min(t.index+1,host.modes.length-1);
 				}else{
 					t.index=Math.max(-2,t.index-1);
 				}
-			}else if(c==k.left_data || c==37 || c==k.right_data || c==39){
+			}else if(dir==="left"||dir==="right"){
 				//←→
 				if(t.index>=0)t.index=-1;
 				else t.index=0;
-			}else if(c==k.space_data || c==32){
+			}else if(dir==="space"){
 				//Space
 				if(t.index==-1){
 					//Key Config
@@ -553,12 +555,10 @@ TitlePanel.prototype=Game.util.extend(ChildPanel,{
 			t.event.emit("changeindex",t.index);
 		}
 	},
-	render:function(view){
-		view.getItem();
-	},
 	renderCanvas:function(canvas,ctx,view){
 		var host=this.parent.host, t=this;
 		var h=host.header;
+		if(!h)return;
 		host.writebi(ctx,h.fontinfo.musictitle.title,h.musicTitle.title);
 		host.writebi(ctx,h.fontinfo.musictitle.author,h.musicTitle.author);
 		//難易度一覧
@@ -587,30 +587,36 @@ KeyConfigPanel.prototype=Game.util.extend(ChildPanel,{
 		event.on("changeindex",function(index){
 			t.index=index;
 		});
-	},
-	renderInit:function(view,game){
-		//実際は描画しないけど初期化だけしちゃう系
-		var t=this, k=this.user.keys, host=this.parent.host;
 		this.user.event.on("keydown",khandler);
 		this.event.on("die",function(){
 			t.user.event.removeListener("keydown",khandler);
 		});
-		return document.createElement("div");
-		function khandler(c){
+		function khandler(dir,c){
 			if(c==27){
 				//Esc
-				//ユーザー側だし・・・
-				localStorage.keys=JSON.stringify(t.user.keys);
 				//トップに戻る
 				t.parent.openPanel(game,"title");
 				return;
 			}
 			var arr=["left_data","down_data","up_data","right_data","space_data"];
-			t.user.keys[arr[t.index]]=c;
+			//t.user.keys[arr[t.index]]=c;
+			event.emit("setKey",arr[t.index],c);
 			t.index++;
 			if(t.index>=arr.length)t.index=0;
-			t.event.emit("changeindex",t.index);
+			event.emit("changeindex",t.index);
 		}
+	},
+	renderInit:function(view,game){
+		//実際は描画しないけど初期化だけしちゃう系
+		var t=this, k=this.user.keys, host=this.parent.host, ev=this.event;
+		ev.on("setKey",function(keyname,charcode){
+			//キー設定変更
+			if(k){
+				k[keyname]=charcode;
+				localStorage.keys=JSON.stringify(k);
+			}
+		});
+		return document.createElement("div");
 	},
 	render:function(view){
 		view.getItem();
@@ -618,6 +624,7 @@ KeyConfigPanel.prototype=Game.util.extend(ChildPanel,{
 	renderCanvas:function(canvas,ctx,view){
 		var host=this.parent.host, t=this;
 		var h=host.header, st=view.getStore(host);	//hostのデータ
+		if(!h)return;
 		var arrow_images;
 		if(h.arrowType=="image"){
 			arrow_images=st.arrow_images;
@@ -632,7 +639,7 @@ KeyConfigPanel.prototype=Game.util.extend(ChildPanel,{
 
 			host.drawArrow(ctx,h.pos[x],h.arrowy,x,arrow_images);
 			ctx.font=h.font.normal;
-			ctx.fillText(host.charString(t.user.keys[x]),h.pos[x]+5,h.arrowy+40);	//hard coding
+			ctx.fillText(t.user.keys ? host.charString(t.user.keys[x]) : "???",h.pos[x]+5,h.arrowy+40);	//hard coding
 		});
 		host.writebi(ctx,h.fontinfo.keyconfig.message,"Escキーを押すと終了します");
 	},

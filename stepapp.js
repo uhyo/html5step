@@ -5,6 +5,7 @@ var srv=express();
 srv.get("/",function(req,res){
 	res.sendfile("client.html");
 });
+srv.use("/images",express.static(__dirname+"/images"));
 
 var http_wrap=http.createServer(srv);
 var app=uhyoooooo.createServer(http_wrap);
