@@ -68,6 +68,13 @@ OnigiriHost.prototype={
 		event.on("addPlayer",function(panel){
 			t.users.push(panel);
 		});
+		//準備ができた
+		event.on("ready",function(panel){
+			//全て準備ができたかどうか確認する
+			if(t.users.every(function(p){return p.ready})){
+				//スタートだ!!
+			}
+		});
 	},
 	//--internal
 	setHeader:function(h){
@@ -104,22 +111,6 @@ OnigiriHost.prototype={
 	render:function(view){
 		var d=view.getItem(), store=view.getStore(), h=this.header;
 		//リソース読み込み
-		if(!store.audio && h){
-			var au=new Audio();
-			au.preload="auto";
-			au.autoplay=true;	//自動読み込み有効にするため
-			au.src=h.mediaURI;
-			au.muted=true;
-			au.hidden=true;
-			//プレイ時は止める
-			au.addEventListener("play",function handler(e){
-				au.pause();
-				au.muted=false;
-				au.removeEventListener("play",handler,false);
-			},false);
-			au.play();
-			store.audio=au;
-		}
 		if(!store.arrow_images && h){
 			var arrow_images={}, arrow_raw_images={};
 			var arrowImage=h.arrowImage;
@@ -451,6 +442,7 @@ OnigiriHost.prototype={
 function PlayerPanel(game,event,param){
 	this.host=param.host;	//OnigiriHost
 	this.user=param.user;
+	this.ready=false;	//ゲーム開始準備ができたかどうか
 	//デフォルトコンフィグをセット
 	var c=this.config={};
 	this.host.useHeader(function(h){
@@ -461,10 +453,15 @@ function PlayerPanel(game,event,param){
 }
 PlayerPanel.prototype={
 	init:function(game,event,param){
-		var t=this;
+		var t=this, user=this.user;
 		//パネル起動
 		event.on("openPanel",function(panel){
 			t.panel=panel;
+		});
+		//メディア準備
+		user.event.on("mediaReady",function(){
+			t.ready=true;
+			t.host.event.emit("ready",t);
 		});
 	},
 	renderInit:function(view){
@@ -472,14 +469,29 @@ PlayerPanel.prototype={
 		//canvasを作る
 		var c=document.createElement("canvas");
 		c.width=h.canvas.x, c.height=h.canvas.y;
-		console.log(this);
 		return c;
 	},
 	render:function(view){
-		var c=view.getItem();
+		var c=view.getItem(), store=view.getStore(), h=this.host.header;
+		//メディア読み込み
+		if(!store.audio && h){
+			var au=new Audio();
+			au.preload="auto";
+			au.autoplay=true;	//自動読み込み有効にするため
+			au.src=h.mediaURI;
+			au.muted=true;
+			au.hidden=true;
+			//プレイ時は止める
+			au.addEventListener("play",function handler(e){
+				au.pause();
+				au.muted=false;
+				au.removeEventListener("play",handler,false);
+			},false);
+			au.play();
+			store.audio=au;
+		}
 		var ctx=c.getContext('2d');
 		//まず真っ黒に塗る
-		var h=this.host.header;
 		ctx.fillStyle=h.color.background;
 		ctx.fillRect(0,0,c.width,c.height);
 
@@ -490,7 +502,7 @@ PlayerPanel.prototype={
 		}
 	},
 	//--internal
-	openPanel:function(game,mode){
+	openPanel:function(game,mode,option){
 		if(this.panel){
 			this.panel.event.emit("die");
 		}
@@ -505,14 +517,20 @@ PlayerPanel.prototype={
 			case "config":
 				con=ConfigPanel;
 				break;
+			case "game":
+				com=GamePanel;
+				break;
 		}
 		if(con){
 			var panel=game.add(con,{
 				user:this.user,
 				parent:this,
+				option:option,
 			});
 			this.event.emit("openPanel",panel);
+			return panel;
 		}
+		return null;
 	},
 	//------
 	//デフォルト コンフィグ
@@ -574,7 +592,8 @@ TitlePanel.prototype=Game.util.extend(ChildPanel,{
 					//Config
 					t.parent.openPanel(game,"config");
 				}else{
-					g.startProcess(g.commands.game,{modeindex:t.index});
+					t.parent.openPanel(game,"game",{modeindex:t.index});
+					//ゲームの準備をさせる
 				}
 			}else{
 				return;
@@ -745,6 +764,45 @@ ConfigPanel.prototype=Game.util.extend(ChildPanel,{
 		host.writebi(ctx,h.fontinfo.keyconfig.message,"[Space][←][→]:変更　[Esc]:終了");
 	},
 	//---
+});
+//ゲーム画面
+function GamePanel(game,event,param){
+	ChildPanel.apply(this,arguments);
+}
+GamePanel.prototype=Game.util.extend(ChildPanel,{
+	renderInit:function(view,game){
+		var t=this, user=this.user, k=this.user.keys, host=this.parent.host, ev=this.event, store=view.getStore(this.parent);
+		//現在のリソース状態を報告する
+		if(store.audio.readyState===4){
+			//準備ができた HAVE_ENOUGH_DATA
+			user.event.emit("mediaReady");
+		}else{
+			store.audio.addEventListener("canplaythrough",function handler(e){
+				user.event.emit("mediaReady");
+				store.audio.removeEventListener("canplaythrough",handler,false);
+			},false);
+		}
+
+		return document.createElement("div");
+	},
+	render:function(view){
+		view.getItem();
+	},
+	renderCanvas:function(canvas,ctx,view){
+		var host=this.parent.host, t=this, p=this.parent;
+		var h=host.header, st=view.getStore(host);	//hostのデータ
+		if(!h)return;
+		p.confs.forEach(function(x,i){
+			var px=80, py=80+30*i;
+			ctx.fillStyle=h.color.color;
+			ctx.font=h.font.normal;
+			if(t.index==i)ctx.fillStyle="#ff4444";	//hard coding
+			ctx.fillText(x.name,px,py);
+
+			ctx.fillText(p.config[x.name],px+150,py);	//hard coding
+		},this);
+		host.writebi(ctx,h.fontinfo.keyconfig.message,"[Space][←][→]:変更　[Esc]:終了");
+	},
 });
 // ゲーム開始
 var o=new Onigiri;
