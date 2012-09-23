@@ -57,6 +57,7 @@ Onigiri.prototype={
 function OnigiriHost(game,event,param){
 	this.header=null;	//loadしたらオブジェクト
 	this.users=[];	//PlayerPanel
+	this.mediaTimer=game.getTimer();
 }
 OnigiriHost.prototype={
 	init:function(game,event,param){
@@ -73,6 +74,7 @@ OnigiriHost.prototype={
 			//全て準備ができたかどうか確認する
 			if(t.users.every(function(p){return p.ready})){
 				//スタートだ!!
+				t.mediaTimer.setTime(-1600);
 			}
 		});
 	},
@@ -105,7 +107,20 @@ OnigiriHost.prototype={
 		var ev=view.getEvent(), store=view.getStore();
 		var div=document.createElement("div");
 		//イベント
+		//オーディオマネージャ
+		store.mediaController=new MediaController();
+		store.mediaController.pause();
 		//オーディオ読み込み指令
+		ev.on("ready",function(){
+			//タイムライン開始（オーディオ開始）
+			var timer=t.mediaTimer;
+			timer.addFunc(0,function(){
+				//0になったらオーディオ開始
+				store.mediaController.currentTime=0;
+				//ほんとはplay()で全て再生されるはずだけど・・・（ブラウザ対応待ち）
+				store.mediaController.play();
+			});
+		});
 		return div;
 	},
 	render:function(view){
@@ -465,10 +480,19 @@ PlayerPanel.prototype={
 		});
 	},
 	renderInit:function(view){
-		var h=this.host.header;
+		var host=this.host, h=host.header, store=view.getStore();
 		//canvasを作る
 		var c=document.createElement("canvas");
 		c.width=h.canvas.x, c.height=h.canvas.y;
+		store.canvas=c;
+		//メディアスターと
+		var evv=view.getEvent(host);
+		evv.on("ready",function(){
+			//0になったらはじめる
+			host.mediaTimer.addFunc(0,function(){
+				store.audio.play();
+			});
+		});
 		return c;
 	},
 	render:function(view){
@@ -489,6 +513,10 @@ PlayerPanel.prototype={
 			},false);
 			au.play();
 			store.audio=au;
+			//コントローラーに登録
+			var st2=view.getStore(this.host);
+			au.controller=st2.mediaController;
+			
 		}
 		var ctx=c.getContext('2d');
 		//まず真っ黒に塗る
@@ -518,7 +546,7 @@ PlayerPanel.prototype={
 				con=ConfigPanel;
 				break;
 			case "game":
-				com=GamePanel;
+				con=GamePanel;
 				break;
 		}
 		if(con){
@@ -768,22 +796,116 @@ ConfigPanel.prototype=Game.util.extend(ChildPanel,{
 //ゲーム画面
 function GamePanel(game,event,param){
 	ChildPanel.apply(this,arguments);
+	this.modeindex=param.option.modeindex;
 }
 GamePanel.prototype=Game.util.extend(ChildPanel,{
 	renderInit:function(view,game){
-		var t=this, user=this.user, k=this.user.keys, host=this.parent.host, ev=this.event, store=view.getStore(this.parent);
+		var t=this, user=this.user, k=this.user.keys,parent=this.parent, host=parent.host, ev=this.event, store=view.getStore(parent), sth=view.getStore(host);
 		//現在のリソース状態を報告する
 		if(store.audio.readyState===4){
 			//準備ができた HAVE_ENOUGH_DATA
-			user.event.emit("mediaReady");
+			//user.event.emit("mediaReady");
+			loadHumen();
 		}else{
 			store.audio.addEventListener("canplaythrough",function handler(e){
-				user.event.emit("mediaReady");
+				//user.event.emit("mediaReady");
+				loadHumen();
 				store.audio.removeEventListener("canplaythrough",handler,false);
 			},false);
 		}
+		//描画するぞ!!!
+		host.useHeader(function(h){
+			//me: 繰り返しするアレ clear:解除するアレ
+			var me, m;
+			if(me=window.requestAnimationFrame){
+				clear=window.cancelRequestAnimationFrame;
+			}else if(me=window.webkitRequestAnimationFrame){
+				clear=window.webkitCancelRequestAnimationFrame;
+			}else if(me=window.mozRequestAnimationFrame){
+				clear=window.mozCancelRequestAnimationFrame;
+			}else if(me=window.oRequestAnimationFrame){
+				clear=window.oRequestAnimationFrame;
+			}
+			if(me){
+				m=function(func){
+					var flag=true;//継続フラグ
+					me(c);
+					return clear;
+					
+					function c(){
+						func();
+						if(flag){
+							me(c);
+						}
+					}
+					
+					function clear(){
+						flag=false;
+					}
+				};
+			}
+			if(!m){
+				m=(function(f){
+					return function(func){
+						var timerid=setInterval(func,1000/f);
+						return clear;
+						function clear(){
+							clearInterval(timerid);
+						}
+					};
+				})(f);
+			}
+			//描画準備
+			var canvas=store.canvas;
+			var ctx=canvas.getContext('2d');
+
+			var dobj=host.modes[t.modeindex];
+			store.difStep=dobj.difStep;
+			store.speed=dobj.speed;
+			var arrowwidths=store.arrowwidths={};
+			["left_data","up_data","right_data","down_data"].forEach(function(x){
+				if(h.arrowType==="image"){
+					arrowwidths[x]=sth.arrow_images[x].naturalWidth;
+				}else if(h.arrowType==="grayimage"){
+					arrowwidths[x]=sth.arrow_raw_images[x].naturalWidth;
+				}else{
+					ctx.font=h.font[x];
+					arrowwidths[x]=ctx.measureText(h.chars[x]).width;
+				}
+			});
+			store.arrowy=h.arrowy;
+			if(parent.config.Reverse=="on"){
+				store.arrowy=canvas.height-arrowy+30;	//hard coding
+			}
+			//画像セット!
+			t.setArrowImage(h,store,sth);
+			//倍速
+			store.flow_speed=1;
+			var result;
+			if(result=parent.config.Speed.match(/^x(\d+(?:\.\d+)?)/)){
+				flow_speed=parseFloat(result[1]);
+			}
+			store.coll_sut=parseInt(parent.config.Correction);
+			//エフェクト
+			store.effects=[];
+
+
+			//解除の用意
+			store.clearTimer=m(t.renderFrame.bind(t,canvas,ctx,h,parent,host,store));
+		});
 
 		return document.createElement("div");
+		//譜面を読み込む関数
+		function loadHumen(){
+			var dobj=host.modes[t.modeindex];
+			game.readFile(dobj.uri,"text",function(text){
+				var obj=JSON.parse(text);
+				//譜面を読み込む
+				store.coms=t.loadHumen(obj);
+				//そして準備OK!
+				user.event.emit("mediaReady");
+			});
+		}
 	},
 	render:function(view){
 		view.getItem();
@@ -792,16 +914,114 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		var host=this.parent.host, t=this, p=this.parent;
 		var h=host.header, st=view.getStore(host);	//hostのデータ
 		if(!h)return;
-		p.confs.forEach(function(x,i){
-			var px=80, py=80+30*i;
-			ctx.fillStyle=h.color.color;
-			ctx.font=h.font.normal;
-			if(t.index==i)ctx.fillStyle="#ff4444";	//hard coding
-			ctx.fillText(x.name,px,py);
+		ctx.fillStyle=h.color.color;
+		ctx.font=h.font.normal;
+		ctx.fillText("待機中...",50,50);
+	},
+	//毎フレームの描画
+	renderFrame:function(c,ctx,h,p,host,store){
+		//まず真っ黒に塗る
+		var audio=store.audio;
+		ctx.fillStyle=h.color.background;
+		ctx.fillRect(0,0,c.width,c.height);
+		ctx.fillStyle="#ffffff";
+		ctx.fillText("ready:"+p.ready+" / "+String(host.mediaTimer.getTime())+","+String(audio.currentTime.toFixed(1))+","+audio.paused,50,50);
+		
+	},
+	//矢印の画像更新
+	setArrowImage:function(h,store,sth){
+		if(h.arrowType!="grayimage")return;
+		["left_data","down_data","up_data","right_data","space_data"].forEach(function(n){
+			//h.color.arrow
+			var c=sth.arrow_images[n];
+			if(!c.getContext){
+				c=sth.arrow_images[n]=sth.arrow_raw_images[n].ownerDocument.createElement("canvas");
+				c.width=sth.arrow_raw_images[n].naturalWidth;
+				c.height=sth.arrow_raw_images[n].naturalHeight;
+			}
+			var cx=c.getContext('2d');
+			//矢印のキャンバス
+			cx.drawImage(sth.arrow_raw_images[n],0,0);
+			var data=cx.getImageData(0,0,c.width,c.height);
 
-			ctx.fillText(p.config[x.name],px+150,py);	//hard coding
+			var color={r:0,g:0,b:0};
+			cx.fillStyle=h.color.arrow[n];
+			var st=cx.fillStyle;
+			var result;
+			//serialization of a color
+			if(result=st.match(/^#([0-9a-fA-F][0-9a-fA-F])([0-9a-fA-F][0-9a-fA-F])([0-9a-fA-F][0-9a-fA-F])$/)){
+				color.r=parseInt(result[1],16);
+				color.g=parseInt(result[2],16);
+				color.b=parseInt(result[3],16);
+
+			}else if(result=st.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*0\.\d+\)$/)){
+				color.r=parseInt(result[1]);
+				color.g=parseInt(result[2]);
+				color.b=parseInt(result[3]);
+			}
+
+			var w=data.width, he=data.height;
+
+			var output=cx.createImageData(data);
+
+			var dd=data.data, od=output.data;
+
+			color.r=color.r/255, color.g=color.g/255, color.b=color.b/255;
+			for(var x=0;x<w;x++){
+				for(var y=0;y<he;y++){
+					var i=(y*w+x)*4;
+					if(dd[i+3]>0){
+						if(dd[i]==dd[i+1] && dd[i+1]==dd[i+2]){
+							//グレー
+							od[i]=dd[i]*color.r|0;
+							od[i+1]=dd[i]*color.g|0;
+							od[i+2]=dd[i]*color.b|0;
+							od[i+3]=dd[i+3];
+							//console.log(n,x,y,":",od[i],od[i+1],od[i+2]);
+						}
+					}else{
+						od[i]=dd[i];
+						od[i+1]=dd[i+1];
+						od[i+2]=dd[i+2];
+						od[i+3]=dd[i+3];
+					}
+				}
+			}
+			cx.putImageData(output,0,0);
+		});
+	},
+	//譜面をロードして配列を返す
+	loadHumen:function(obj){
+		var coms=[];	//コマンド一覧
+		["left_data","down_data","up_data","right_data","space_data"].forEach(function(x){
+			coms=coms.concat(obj[x].map(function(y){
+				return {type:x, frame:y};
+			}));
 		},this);
-		host.writebi(ctx,h.fontinfo.keyconfig.message,"[Space][←][→]:変更　[Esc]:終了");
+		var frzcnvs={	//対応する通常矢印のアレ
+			"frzLeft_data":"left_data",
+			"frzDown_data":"down_data",
+			"frzUp_data":"up_data",
+			"frzRight_data":"right_data",
+			"frzSpace_data":"space_data",
+		};
+
+		["frzLeft_data","frzDown_data","frzUp_data","frzRight_data","frzSpace_data"].forEach(function(x){
+			coms=coms.concat(obj[x].map(function(y){
+				return {type:frzcnvs[x], frame:y.Start, end:y.End,freeze:true,hit:false};
+			}));
+		},this);
+		coms=coms.concat(obj.speed_change.map(function(y){
+			return {type:"speed_change", frame:y.frame, speed:y.speed};
+		}));
+		coms=coms.concat(obj.color_data.map(function(y){
+			return {type:"color_data",frame:y.frame,setcolor:y["set"],color:y.color};
+		}));
+		//時間ごとソート（降順）
+		coms.sort(function(a,b){
+			return a.frame-b.frame;
+		});
+		return coms;
 	},
 });
 // ゲーム開始
