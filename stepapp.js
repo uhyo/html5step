@@ -5,10 +5,8 @@ var srv=express();
 srv.get("/",function(req,res){
 	res.sendfile("client.html");
 });
-srv.get("/sound2.ogg",function(req,res){
-	res.sendfile("sound2.ogg");
-});
 srv.use("/images",express.static(__dirname+"/images"));
+srv.use("/media",express.static(__dirname+"/media"));
 
 var http_wrap=http.createServer(srv);
 var app=uhyoooooo.createServer(http_wrap);
