@@ -18,18 +18,55 @@ Onigiri.prototype={
 			};
 
 			//キー入力をユーザーへ流す
-			user.addEventListener("keydown",function(e){
-				//方向情報をアレする
-				var c=e.keyCode, k=user.keys;
-				var direction= c===k.left_data || c===37? "left" :
-				               c===k.up_data || c===38? "up" :
-				               c===k.right_data || c===39? "right" :
-				               c===k.down_data || c===40? "down" :
-				               c===k.space_data || c===32? "space" : "";
+			user.capture=capture;
+			var standardUnCapture;
+			//デフォルトの入力イベント有効化
+			user.useStandardKeyCapture=function(){
+				if(standardUnCapture){
+					standardUnCapture();
+					standardUnCapture=null;
+				}
+				standardUnCapture=this.capture(standardCapture);
+			};
+			//無効化
+			user.unuseStandardKeyCapture=function(){
+				if(standardUnCapture)standardUnCapture();
+				standardUnCapture=null;
+			};
+			user.useStandardKeyCapture();
+			//標準のキーストリームを有効化/無効化
+			function standardCapture(direction,keyCode){
+				user.event.emit("keydown",direction,keyCode);
+			}
 
-				user.event.emit("keydown",direction,e.keyCode);
-				e.preventDefault();
-			},false);
+			//方向情報付き入力補足メソッド(uncaptureを返す)
+			function capture(eventname,callback){
+				//eventname:省略可能("eventname")
+				if("function"===typeof eventname){
+					callback=eventname;
+					eventname="keydown";
+				}else if(!eventname){
+					eventname="keydown";
+				}
+				//this=user
+				this.addEventListener(eventname,handler,false);
+				return function uncapture(){
+					this.removeEventListener(eventname,handler,false);
+				}.bind(this);
+				function handler(e){
+					//方向情報をアレする
+					var c=e.keyCode, k=user.keys;
+					var direction= c===k.left_data || c===37? "left" :
+						c===k.up_data || c===38? "up" :
+						c===k.right_data || c===39? "right" :
+						c===k.down_data || c===40? "down" :
+						c===k.space_data || c===32? "space" : "";
+
+					//user.event.emit("keydown",direction,e.keyCode);
+					callback(direction,e.keyCode);
+					e.preventDefault();
+				}
+			}
 		});
 		//ゲームの初期化
 		game.event.on("gamestart",function(){
@@ -801,7 +838,19 @@ ConfigPanel.prototype=Game.util.extend(ChildPanel,{
 //ゲーム画面
 function GamePanel(game,event,param){
 	ChildPanel.apply(this,arguments);
+	var h=this.parent.host.header;
 	this.modeindex=param.option.modeindex;
+	//スコア
+	this.score={
+		great:0,
+		good:0,
+		bad:0,
+		miss:0,
+		freezegood:0,
+		freezebad:0,
+	};
+	//ノルマ
+	this.normapoint=h.norma.init;	//最初
 	//ここで譜面読み込み
 	this.coms=null;
 	var t=this, host=this.parent.host;
@@ -813,12 +862,54 @@ function GamePanel(game,event,param){
 		game.readFile(dobj.uri,"text",function(text){
 			var obj=JSON.parse(text);
 			//譜面を読み込む
-			console.log(text);
 			t.coms=t.loadHumen(obj);
 		});
 	}
 }
 GamePanel.prototype=Game.util.extend(ChildPanel,{
+	init:function(game,event,param){
+		var user=this.user, t=this, host=this.parent.host;
+		//矢印ヒット！
+		user.event.on("keyinput",function(obj){
+			var frame=obj.frame, targetframe=obj.targetframe, type=obj.type;	//合致するものを探す
+			var h=host.header, coms=t.coms;
+			for(var i=0,l=coms.length;i<l;i++){
+				var co=coms[i];
+				if(co.frame===targetframe && co.type===type){
+					//目的のやつだ!
+					var sa=Math.abs(frame-targetframe);	//誤差
+					var sc="";
+					if(sa<=2){
+						sc="great";
+					}else if(sa<=5){
+						sc="good";
+					}else if(sa<=8){
+						sc="bad";
+					}else{
+						break;
+					}
+					if(!co.freeze){
+						getscore(sc);
+						//effects.push(new ScoreEffect(h.pos[co.type],h.arrowy,sc));
+						event.emit("effect",{
+							x:h.pos[co.type],
+							y:h.arrowy,
+							score:sc,
+						});
+						coms.splice(i,1);
+						i--,l--;
+					}
+					break;
+				}
+			}
+			function getscore(scorename){
+				t.score[scorename]++;
+				t.normapoint+=h.norma.score[scorename];
+				if(t.normapoint>h.norma.max)t.normapoint=h.norma.max;
+				if(t.normapoint<0)t.normapoint=0;
+			}
+		});
+	},
 	renderInit:function(view,game){
 		var t=this, user=this.user, k=this.user.keys,parent=this.parent, host=parent.host, ev=this.event, store=view.getStore(parent), sth=view.getStore(host);
 		//現在のリソース状態を報告する
@@ -909,9 +1000,76 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			store.coll_sut=parseInt(parent.config.Correction);
 			//エフェクト
 			store.effects=[];
+			ev.on("effect",function(obj){
+				//エフェクト発動!!!!!
+				store.effects.push(new ScoreEffect(obj.x,obj.y,obj.score,h));
+			});
 
 			//解除の用意
 			store.clearTimer=m(t.renderFrame.bind(t,canvas,ctx,h,parent,host,store,sth));
+
+			//キー入力
+			user.unuseStandardKeyCapture();	//デフォルトは切る
+			store.uncapture=user.capture(function(direction,keycode){
+				//現在のフレーム
+				var coms=t.coms;
+				var audio=store.audio;
+				var nowf=audio.currentTime*h.fps-store.coll_sut;	//現在のフレーム
+				var dirstr=direction+"_data";
+				//クライアント側で探してから送る
+				for(var i=0,l=coms.length;i<l;i++){
+					var co=coms[i];
+					if(co.frame<nowf-8)continue;
+					if(nowf+8<co.frame)break;
+					if(dirstr===co.type){
+						//押した
+						var sa=Math.abs(nowf-co.frame);
+						if(co.freeze && sa<=5){
+							//フリーズアローだった
+							co.hit=true;	//描画が変わるし…
+							var func=(function(c,co){
+								var callee=function(e){
+									if(e.keyCode===keycode){
+										//キーを上げた
+										var nowf=au.currentTime*h.fps-store.coll_sut;	//現在のフレーム
+										var sc;
+										for(var i=0,l=coms.length;i<l;i++){
+											if(coms[i]==co){
+												//消す
+												/*coms.splice(i,1);
+												if(co.end-5<=nowf){
+													//OK
+													sc="freezegood";
+												}else{
+													sc="freezebad";
+												}
+												getscore(sc);
+												effects.push(new ScoreEffect(h.pos[co.type],h.arrowy,sc));*/
+												break;
+											}
+										}
+										document.removeEventListener('keyup',callee,false);
+									}
+								};
+								return callee;
+							})(c,co);
+							document.addEventListener('keyup',func,false);
+						}else if(!co.freeze){
+							/*getscore(sc);
+							effects.push(new ScoreEffect(h.pos[co.type],h.arrowy,sc));
+							coms.splice(i,1);
+							i--,l--;*/
+						}
+						//矢印があった!イベント発行
+						user.event.emit("keyinput",{
+							frame:nowf,
+							targetframe:co.frame,
+							type:co.type
+						});
+						break;
+					}
+				}
+			});
 		});
 
 		return document.createElement("div");
@@ -923,6 +1081,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		var host=this.parent.host, t=this, p=this.parent;
 		var h=host.header, st=view.getStore(host);	//hostのデータ
 		if(!h)return;
+		if(host.mediaTimer.getTime()>=0)return;	//もう開始している
 		ctx.fillStyle=h.color.color;
 		ctx.font=h.font.normal;
 		ctx.fillText("待機中...",50,50);
@@ -948,6 +1107,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			nowf=host.mediaTimer.getTime()/1000*h.fps;
 		}
 		//画面表示の限界
+		var minf=nowf-h.trashrange;
 		var maxf=nowf+canvas.height/sp/flow_speed;
 		//描画
 		ctx.save();
@@ -966,9 +1126,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		for(var i=0,l=coms.length;i<l;i++){
 			//矢印ひとつひとつ
 			var c=coms[i];
-			if((c.freeze?c.end:c.frame)<nowf-h.trashrange){
-				coms.splice(i,1);
-				i--,l--;
+			if((c.freeze?c.end:c.frame)<minf){
+				//coms.splice(i,1);
+				//i--,l--;
 				//getscore(c.freeze ? "freezebad" : "miss");
 				continue;
 			}
@@ -1028,8 +1188,8 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				// 突破したのでOK
 				/*getscore("freezegood");
 				effects.push(new ScoreEffect(h.pos[c.type],h.arrowy,"freezegood"));*/
-				coms.splice(i,1);
-				i--,l--;
+				//coms.splice(i,1);
+				//i--,l--;
 			}
 			if(maxf<c.frame)break;	//sortされてるし
 			if(!h.chars[c.type])continue;
@@ -1060,6 +1220,37 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				//ctx.fillText(h.chars[c.type] || "undef",h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp);
 				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp,c.type,sth.arrow_images);
 			}
+		}
+		//スコア
+		ctx.font=h.font.score;
+		var i=0;
+		for(var x in this.score){
+			//g.writebi(ctx,h.fontinfo.score[x],h.scorename[x]+" "+score[x]);
+			ctx.fillStyle=h.color.score[x];
+			//hard coding
+			ctx.fillText(h.scorename[x]+" "+this.score[x],h.infox,80+i*25);
+			i++;
+		}
+		if(h.timeinfo){
+			//時間
+			ctx.fillStyle=h.color.color;
+			ctx.fillText(timeString(audio.currentTime)+" / "+timeString(audio.duration),h.infox,240);
+		}
+		//エッフェクト
+		var ef=store.effects;
+		for(var i=0,l=ef.length;i<l;i++){
+			var e=ef[i];
+			e.main(ctx);
+			if(!e.alive){
+				ef.splice(i,1);
+				i--,l--;
+				continue;
+			}
+		}
+		//秒数をmm:ss型にする
+		function timeString(sec){
+			var m=Math.floor(sec/60);
+			return m+":"+("0"+(Math.floor(sec)%60)).slice(-2);
 		}
 	},
 	//矢印の画像更新
@@ -1158,6 +1349,36 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		return coms;
 	},
 });
+//エフェクト定義(client用)
+function Effect(x,y){
+	this.alive=true;
+	this.x=x,this.y=y;
+}
+Effect.prototype={
+	main:function(){
+	},
+};
+function ScoreEffect(x,y,score,h){
+	Effect.apply(this,arguments);
+	this.op=1;
+	this.score=score;
+	this.h=h;	//header
+}
+ScoreEffect.prototype.main=function(ctx){
+	var h=this.h;
+	this.y-=120/h.fps;
+	this.op-=1.2/h.fps;	//1.2[point/s]
+	if(this.op<=0){
+		this.alive=false;
+		return;
+	}
+	//描画
+	ctx.save();
+	ctx.fillStyle=h.color.score[this.score];
+	ctx.globalAlpha=this.op;
+	ctx.fillText(h.scorename[this.score],this.x,this.y);
+	ctx.restore();
+};
 // ゲーム開始
 var o=new Onigiri;
 o.init();
