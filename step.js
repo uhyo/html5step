@@ -889,7 +889,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 						break;
 					}
 					if(!co.freeze){
-						getscore(sc);
+						t.getscore(sc,h);
 						//effects.push(new ScoreEffect(h.pos[co.type],h.arrowy,sc));
 						event.emit("effect",{
 							x:h.pos[co.type],
@@ -898,17 +898,63 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 						});
 						coms.splice(i,1);
 						i--,l--;
+					}else{
+						//とりあえずhitした
+						co.hit=true;
 					}
 					break;
 				}
 			}
-			function getscore(scorename){
-				t.score[scorename]++;
-				t.normapoint+=h.norma.score[scorename];
-				if(t.normapoint>h.norma.max)t.normapoint=h.norma.max;
-				if(t.normapoint<0)t.normapoint=0;
+		});
+		//矢印ロスト!
+		user.event.on("lose",function(obj){
+			var frame=obj.frame, type=obj.type;
+			var h=host.header, coms=t.coms;
+			for(var i=0,l=coms.length;i<l;i++){
+				var co=coms[i];
+				if(co.frame===frame && co.type===type){
+					//目的のやつだ!
+					coms.splice(i,1);
+					i--,l--;
+					var sc= co.freeze ? "freezebad" : "miss";
+					t.getscore(sc,h);
+					event.emit("effect",{
+						x:h.pos[co.type],
+						y:h.arrowy,
+						score:sc,
+					});
+					break;
+				}
 			}
 		});
+		//フリーズヒット!
+		user.event.on("freezeinput",function(obj){
+			var frame=obj.frame, targetframe=obj.targetframe, type=obj.type;	//合致するものを探す
+			var h=host.header, coms=t.coms;
+			for(var i=0,l=coms.length;i<l;i++){
+				var co=coms[i];
+				if(co.frame===targetframe && co.type===type && co.freeze && co.hit){
+					//目的のやつだ!
+					var sc= co.end-5<=frame ? "freezegood" : "freezebad";
+					t.getscore(sc,h);
+					event.emit("effect",{
+						x:h.pos[co.type],
+						y:h.arrowy,
+						score:sc,
+					});
+					coms.splice(i,1);
+					i--,l--;
+					break;
+				}
+			}
+		});
+	},
+	//h: header
+	getscore:function(scorename,h){
+		this.score[scorename]++;
+		this.normapoint+=h.norma.score[scorename];
+		if(this.normapoint>h.norma.max)this.normapoint=h.norma.max;
+		if(this.normapoint<0)this.normapoint=0;
 	},
 	renderInit:function(view,game){
 		var t=this, user=this.user, k=this.user.keys,parent=this.parent, host=parent.host, ev=this.event, store=view.getStore(parent), sth=view.getStore(host);
@@ -1026,34 +1072,25 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 						var sa=Math.abs(nowf-co.frame);
 						if(co.freeze && sa<=5){
 							//フリーズアローだった
-							co.hit=true;	//描画が変わるし…
-							var func=(function(c,co){
-								var callee=function(e){
-									if(e.keyCode===keycode){
-										//キーを上げた
-										var nowf=au.currentTime*h.fps-store.coll_sut;	//現在のフレーム
-										var sc;
-										for(var i=0,l=coms.length;i<l;i++){
-											if(coms[i]==co){
-												//消す
-												/*coms.splice(i,1);
-												if(co.end-5<=nowf){
-													//OK
-													sc="freezegood";
-												}else{
-													sc="freezebad";
-												}
-												getscore(sc);
-												effects.push(new ScoreEffect(h.pos[co.type],h.arrowy,sc));*/
-												break;
-											}
+							document.addEventListener('keyup',function listener(e){
+								if(e.keyCode===keycode){
+									//キーを上げた
+									var nowf=audio.currentTime*h.fps-store.coll_sut;	//現在のフレーム
+									var sc;
+									for(var i=0,l=coms.length;i<l;i++){
+										if(coms[i]==co){
+											//クリアした
+											user.event.emit("freezeinput",{
+												frame:nowf,
+												targetframe:co.frame,
+												type:co.type,
+											});
+											break;
 										}
-										document.removeEventListener('keyup',callee,false);
 									}
-								};
-								return callee;
-							})(c,co);
-							document.addEventListener('keyup',func,false);
+									document.removeEventListener('keyup',listener,false);
+								}
+							},false);
 						}else if(!co.freeze){
 							/*getscore(sc);
 							effects.push(new ScoreEffect(h.pos[co.type],h.arrowy,sc));
@@ -1127,8 +1164,12 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			//矢印ひとつひとつ
 			var c=coms[i];
 			if((c.freeze?c.end:c.frame)<minf){
-				//coms.splice(i,1);
-				//i--,l--;
+				//ロストした
+				this.user.event.emit("lose",{
+					frame:c.frame,
+					type:c.type,
+				});
+				l=coms.length;	//hard
 				//getscore(c.freeze ? "freezebad" : "miss");
 				continue;
 			}
@@ -1186,10 +1227,11 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			}
 			if(c.freeze && c.hit && c.end<=nowf){
 				// 突破したのでOK
-				/*getscore("freezegood");
-				effects.push(new ScoreEffect(h.pos[c.type],h.arrowy,"freezegood"));*/
-				//coms.splice(i,1);
-				//i--,l--;
+				this.user.event.emit("freezeinput",{
+					frame:nowf,
+					targetframe:c.frame,
+					type:c.type,
+				});
 			}
 			if(maxf<c.frame)break;	//sortされてるし
 			if(!h.chars[c.type])continue;
