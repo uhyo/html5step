@@ -851,6 +851,8 @@ function GamePanel(game,event,param){
 	};
 	//ノルマ
 	this.normapoint=h.norma.init;	//最初
+	//演奏データ
+	this.speed=1;
 	//ここで譜面読み込み
 	this.coms=null;
 	var t=this, host=this.parent.host;
@@ -864,6 +866,7 @@ function GamePanel(game,event,param){
 			//譜面を読み込む
 			t.coms=t.loadHumen(obj);
 		});
+		t.speed=dobj.speedlock;
 	}
 }
 GamePanel.prototype=Game.util.extend(ChildPanel,{
@@ -948,6 +951,76 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				}
 			}
 		});
+		//すピード変更
+		user.event.on("speed_change",function(obj){
+			var frame=obj.frame, speed=obj.speed;
+			var h=host.header, coms=t.coms;
+			for(var i=0,l=coms.length;i<l;i++){
+				var co=coms[i];
+				if(co.frame===frame){
+					//目的のやつだ!
+					coms.splice(i,1);
+					i--,l--;
+					t.speed=speed;
+					break;
+				}
+			}
+		});
+		//色変更
+		user.event.on("color_data",function(obj){
+			var frame=obj.frame, setcolor=obj.setcolor;
+			var h=host.header, coms=t.coms;
+			for(var i=0,l=coms.length;i<l;i++){
+				var co=coms[i];
+				var color=co.color;
+				if(co.frame===frame && co.setcolor===setcolor){
+					//目的のやつだ!
+					switch(setcolor){
+						case 0: h.color.arrow["left_data"]=color;break;
+						case 2: h.color.arrow["down_data"]=color;break;
+						case 3: h.color.arrow["space_data"]=color;break;
+						case 4: h.color.arrow["up_data"]=color;break;
+						case 6: h.color.arrow["right_data"]=color;break;
+
+						case 36: h.color.freezearrow["space_data"]=color;break;
+						case 37: h.color.freezeband["space_data"]=color;break;
+						case 46: h.color.freezehitarrow["space_data"]=color;break;
+						case 47: h.color.freezehitband["space_data"]=color;break;
+						case 53: h.color.freezearrow["space_data"]=h.color.freezeband["space_data"]=color;break;
+						case 58: h.color.freezehitarrow["space_data"]=h.color.freezehitband["space_data"]=color;break;
+
+						default:	//一括系
+								 var pa=({
+									 20:[h.color.arrow],
+									 30:[h.color.freezearrow],
+									 31:[h.color.freezeband],
+									 40:[h.color.freezehitarrow],
+									 41:[h.color.freezehitband],
+									 50:[h.color.arrow,h.color.freezearrow],
+
+									 100:[h.color.arrow],
+								 })[setcolor];
+
+								 var datas=["left_data","down_data","up_data","right_data"];
+
+								 if(setcolor===100){
+									 datas[4]="space_data";
+								 }
+
+								 datas.forEach(function(x){
+									 pa.forEach(function(y){
+										 y[x]=color;
+									 });
+								 });
+								 break;
+					}
+					coms.splice(i,1);
+					i--,l--;
+					break;
+				}
+			}
+		});
+
 	},
 	//h: header
 	getscore:function(scorename,h){
@@ -1016,7 +1089,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 
 			var dobj=host.modes[t.modeindex];
 			store.difStep=dobj.difStep;
-			store.speed=dobj.speedlock;
 			var arrowwidths=store.arrowwidths={};
 			["left_data","up_data","right_data","down_data"].forEach(function(x){
 				if(h.arrowType==="image"){
@@ -1049,6 +1121,10 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			ev.on("effect",function(obj){
 				//エフェクト発動!!!!!
 				store.effects.push(new ScoreEffect(obj.x,obj.y,obj.score,h));
+			});
+			//矢印色変更があった
+			user.event.on("color_data",function(){
+				t.setArrowImage(h,store,sth);
 			});
 
 			//解除の用意
@@ -1136,7 +1212,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			ctx.clearRect(0,0,store.background.width,store.background.height);
 		}
 		//2.0 [s] = Speedlock * (通過時間)[s]
-		var sp=canvas.height/((2/store.speed)*h.fps);	//height[px]/((2.0/speed)[s]・fps[f/s])
+		var sp=canvas.height/((2/this.speed)*h.fps);	//height[px]/((2.0/speed)[s]・fps[f/s])
 		var nowf=audio.currentTime*h.fps;	//現在のフレーム
 		var flow_speed=store.flow_speed;
 		if(audio.paused){
@@ -1163,6 +1239,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		for(var i=0,l=coms.length;i<l;i++){
 			//矢印ひとつひとつ
 			var c=coms[i];
+			if(!c)continue;
 			if((c.freeze?c.end:c.frame)<minf){
 				//ロストした
 				this.user.event.emit("lose",{
@@ -1176,50 +1253,19 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			if(c.frame<nowf){
 				if(c.type=="speed_change"){
 					//speed change
+					this.user.event.emit("speed_change",{
+						frame:c.frame,
+						speed:c.speed,
+					});
 					//speed=c.speed;	//スピード変更
 					coms.splice(i,1);
 					i--,l--;
 				}else if(c.type=="color_data"){
 					//色変更
-					/*switch(c.setcolor){
-						case 0: h.color.arrow["left_data"]=c.color;break;
-						case 2: h.color.arrow["down_data"]=c.color;break;
-						case 3: h.color.arrow["space_data"]=c.color;break;
-						case 4: h.color.arrow["up_data"]=c.color;break;
-						case 6: h.color.arrow["right_data"]=c.color;break;
-
-						case 36: h.color.freezearrow["space_data"]=c.color;break;
-						case 37: h.color.freezeband["space_data"]=c.color;break;
-						case 46: h.color.freezehitarrow["space_data"]=c.color;break;
-						case 47: h.color.freezehitband["space_data"]=c.color;break;
-						case 53: h.color.freezearrow["space_data"]=h.color.freezeband["space_data"]=c.color;break;
-						case 58: h.color.freezehitarrow["space_data"]=h.color.freezehitband["space_data"]=c.color;break;
-
-						default:	//一括系
-								 var pa=({
-									 20:[h.color.arrow],
-									 30:[h.color.freezearrow],
-									 31:[h.color.freezeband],
-									 40:[h.color.freezehitarrow],
-									 41:[h.color.freezehitband],
-									 50:[h.color.arrow,h.color.freezearrow],
-
-									 100:[h.color.arrow],
-								 })[c.setcolor];
-
-								 var datas=["left_data","down_data","up_data","right_data"];
-
-								 if(c.setcolor==100){
-									 datas[4]="space_data";
-								 }
-
-								 datas.forEach(function(x){
-									 pa.forEach(function(y){
-										 y[x]=c.color;
-									 });
-								 });
-								 break;
-					}*/
+					this.user.event.emit("color_data",{
+						frame:c.frame,
+						setcolor:c.setcolor,
+					});
 					if(h.arrowType=="grayimage")this.setArrowImage();
 					coms.splice(i,1);
 					i--,l--;
@@ -1289,6 +1335,26 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				continue;
 			}
 		}
+		//ノルマバー
+		//中
+		ctx.save();
+		ctx.globalAlpha=h.color.gauge.alpha;
+		var height=this.normapoint/h.norma.max*h.gaugepos.height;
+		ctx.fillStyle=this.normapoint>=h.norma.clear ? h.color.gauge.above : h.color.gauge.below;
+		ctx.fillRect(h.gaugepos.x,h.gaugepos.y+h.gaugepos.height-height,h.gaugepos.width,height);
+
+		//枠
+		ctx.strokeStyle=h.color.gauge.frame;
+		ctx.beginPath();
+		ctx.moveTo(h.gaugepos.x,h.gaugepos.y);
+		ctx.lineTo(h.gaugepos.x+h.gaugepos.width,h.gaugepos.y);
+		ctx.lineTo(h.gaugepos.x+h.gaugepos.width,h.gaugepos.y+h.gaugepos.height);
+		ctx.lineTo(h.gaugepos.x,h.gaugepos.y+h.gaugepos.height);
+		ctx.closePath();
+		ctx.lineWidth=h.gaugepos.framewidth;
+		ctx.stroke();
+		ctx.restore();
+
 		//秒数をmm:ss型にする
 		function timeString(sec){
 			var m=Math.floor(sec/60);
