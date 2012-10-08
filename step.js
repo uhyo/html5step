@@ -628,15 +628,15 @@ PlayerPanel.prototype={
 			store.audio.pause();
 		});
 		div.appendChild(c);
-		store.canvas=c;
 		return div;
 	},
 	render:function(view){
 		var store=view.getStore(), h=this.host.header;
+		var div=view.getItem();	//親
 		var c=store.canvas;
 		//メディア読み込み
 		if(!store.audio && h){
-			var au=h.mediaType==="video" ? new Video() : new Audio();
+			var au=h.mediaType==="video" ? document.createElement("video") : new Audio();
 			if(h.mediaType==="video"){
 				//ビデオ調整
 				au.addEventListener("loadedmetadata",function handler(e){
@@ -652,13 +652,15 @@ PlayerPanel.prototype={
 							au.width=c.width;
 							au.height=c.width/aspect;
 						}
-						var div=view.getItem();	//親
 						div.appendChild(au);
 						div.style.position="relative";
 						div.style.left="0px",div.style.top="0px";
-						c.style.position="relative";
+						c.style.position="absolute";
 						c.style.left="0px",c.style.top="0px";
 						c.style.zIndex="1000";
+						au.style.position="absolute";
+						au.style.left="0px",au.style.top="0px";
+						au.style.zIndex="1";
 					}
 
 					e.target.removeEventListener("loadedmetadata",handler,false);
@@ -668,7 +670,6 @@ PlayerPanel.prototype={
 			au.autoplay=true;	//自動読み込み有効にするため
 			au.src=h.mediaURI;
 			au.muted=true;
-			au.hidden=true;
 			//プレイ時は止める
 			au.addEventListener("play",function handler(e){
 				au.pause();
@@ -760,7 +761,7 @@ ChildPanel.prototype={
 	render:function(view){
 		var h=this.parent.host.header;
 		view.getItem();
-		var c=view.getItem(this.parent);	//canvasを得る
+		var c=view.getStore(this.parent).canvas;	//canvasを得る
 		var ctx=c.getContext('2d');
 		//まず真っ黒に塗る
 		ctx.fillStyle=h.color.background;
