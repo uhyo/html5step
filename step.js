@@ -95,8 +95,13 @@ function OnigiriHost(game,event,param){
 	this.header=null;	//loadしたらオブジェクト
 	this.users=[];	//PlayerPanel
 	this.mediaTimer=game.getTimer();
+	this.state=this.STATE_PREPARING;
 }
 OnigiriHost.prototype={
+	//game state
+	STATE_PREPARING:0,	//preparing
+	STATE_PLAYING:1,	//playing
+	STATE_RESULT:2,		//result
 	init:function(game,event,param){
 		var t=this;
 		event.on("loadHeader",function(h){
@@ -111,7 +116,32 @@ OnigiriHost.prototype={
 			//全て準備ができたかどうか確認する
 			if(t.users.every(function(p){return p.ready})){
 				//スタートだ!!
+				t.mediaTimer.clean();
 				t.mediaTimer.setTime(-1600);
+				t.state=t.STATE_PLAYING;	//プレイ中
+			}
+		});
+		//終了した
+		event.on("ended",function(panel){
+			//全て終了したどうか確認する
+			if(t.users.every(function(p){return p.ended})){
+				//終了した。結果を知らせる
+				t.state=t.STATE_RESULT;
+				t.users.forEach(function(x){
+					//x.event.emit("showResult");
+					x.showResult(game);
+				});
+			}
+		});
+		//戻った
+		event.on("back",function(panel){
+			if(t.users.every(function(p){return p.back})){
+				//終了した。結果を知らせる
+				t.state=t.STATE_PREPARING;
+				t.users.forEach(function(x){
+					x.event.emit("initState");
+					x.openPanel(game,"title");
+				});
 			}
 		});
 	},
@@ -152,6 +182,7 @@ OnigiriHost.prototype={
 			//タイムライン開始（オーディオ開始）
 			var timer=t.mediaTimer;
 			timer.addFunc(0,function(){
+				console.log("controller");
 				//0になったらオーディオ開始
 				store.mediaController.currentTime=0;
 				//ほんとはplay()で全て再生されるはずだけど・・・（ブラウザ対応待ち）
@@ -474,7 +505,6 @@ OnigiriHost.prototype={
 		},
 		
 		mediaURI:"sound.ogg",	//デフォルトではsound.oggから読み込み
-		mediaType:"audio",
 		
 		//矢印のタイプ
 		arrowType:"char",	// char/image/grayimage
@@ -495,6 +525,8 @@ function PlayerPanel(game,event,param){
 	this.host=param.host;	//OnigiriHost
 	this.user=param.user;
 	this.ready=false;	//ゲーム開始準備ができたかどうか
+	this.ended=false;	//演奏終了したかどうか
+	this.back=false;	//戻りたいかどうか
 	//デフォルトコンフィグをセット
 	var c=this.config={};
 	this.host.useHeader(function(h){
@@ -506,6 +538,12 @@ function PlayerPanel(game,event,param){
 PlayerPanel.prototype={
 	init:function(game,event,param){
 		var t=this, user=this.user;
+		//初期状態
+		event.on("initState",function(){
+			t.ready=false;
+			t.ended=false;
+			t.back=false;
+		});
 		//パネル起動
 		event.on("openPanel",function(panel){
 			t.panel=panel;
@@ -515,6 +553,17 @@ PlayerPanel.prototype={
 			t.ready=true;
 			t.host.event.emit("ready",t);
 		});
+		//メディア終了
+		user.event.on("mediaEnded",function(){
+			t.ended=true;
+			t.host.event.emit("ended",t);
+		});
+		//タイトルに戻りたい
+		event.on("back",function(){
+			t.back=true;
+			t.host.event.emit("back",t);
+		});
+
 	},
 	renderInit:function(view){
 		var host=this.host, h=host.header, store=view.getStore();
@@ -527,6 +576,8 @@ PlayerPanel.prototype={
 		evv.on("ready",function(){
 			//0になったらはじめる
 			host.mediaTimer.addFunc(0,function(){
+				//ほんとうはmediaController側で再生されるはずだけど・・・
+				console.log("audio",store.audio.duration);
 				store.audio.play();
 			});
 		});
@@ -560,15 +611,17 @@ PlayerPanel.prototype={
 				store.image.src=h.mediaImageURI;
 			}
 		}
-		var ctx=c.getContext('2d');
-		//まず真っ黒に塗る
-		ctx.fillStyle=h.color.background;
-		ctx.fillRect(0,0,c.width,c.height);
+		if(h){
+			var ctx=c.getContext('2d');
+			//まず真っ黒に塗る
+			ctx.fillStyle=h.color.background;
+			ctx.fillRect(0,0,c.width,c.height);
 
-		if(this.panel){
-			//パネルがある
-			view.render(this.panel);	//初期化だけ・・・
-			this.panel.renderCanvas(c,ctx,view);
+			if(this.panel){
+				//パネルがある
+				view.render(this.panel);	//初期化だけ・・・
+				this.panel.renderCanvas(c,ctx,view);
+			}
 		}
 	},
 	//--internal
@@ -590,6 +643,9 @@ PlayerPanel.prototype={
 			case "game":
 				con=GamePanel;
 				break;
+			case "result":
+				con=ResultPanel;
+				break;
 		}
 		if(con){
 			var panel=game.add(con,{
@@ -601,6 +657,12 @@ PlayerPanel.prototype={
 			return panel;
 		}
 		return null;
+	},
+	showResult:function(game){
+		//子のgamingpanelのresult表示
+		if(this.panel instanceof GamePanel){
+			this.panel.showResult(game);	//伝播するgame
+		}
 	},
 	//------
 	//デフォルト コンフィグ
@@ -616,6 +678,19 @@ function ChildPanel(game,event,param){
 	this.user=param.user;
 }
 ChildPanel.prototype={
+	renderInit:function(view,game){
+		return document.createElement("div");
+	},
+	render:function(view){
+		var h=this.parent.host.header;
+		view.getItem();
+		var c=view.getItem(this.parent);	//canvasを得る
+		var ctx=c.getContext('2d');
+		//まず真っ黒に塗る
+		ctx.fillStyle=h.color.background;
+		ctx.fillRect(0,0,c.width,c.height);
+		this.renderCanvas(c,ctx,view);
+	},
 };
 //タイトル
 function TitlePanel(game,event,param){
@@ -734,9 +809,6 @@ KeyConfigPanel.prototype=Game.util.extend(ChildPanel,{
 		});
 		return document.createElement("div");
 	},
-	render:function(view){
-		view.getItem();
-	},
 	renderCanvas:function(canvas,ctx,view){
 		var host=this.parent.host, t=this;
 		var h=host.header, st=view.getStore(host);	//hostのデータ
@@ -815,9 +887,6 @@ ConfigPanel.prototype=Game.util.extend(ChildPanel,{
 		var t=this, k=this.user.keys, host=this.parent.host, ev=this.event;
 		return document.createElement("div");
 	},
-	render:function(view){
-		view.getItem();
-	},
 	renderCanvas:function(canvas,ctx,view){
 		var host=this.parent.host, t=this, p=this.parent;
 		var h=host.header, st=view.getStore(host);	//hostのデータ
@@ -864,7 +933,21 @@ function GamePanel(game,event,param){
 		game.readFile(dobj.uri,"text",function(text){
 			var obj=JSON.parse(text);
 			//譜面を読み込む
-			t.coms=t.loadHumen(obj);
+			var coms=t.coms=t.loadHumen(obj);
+			//パーフェクト時のスコアを計算しておく
+			var pf_score=0;
+			for(var i=0,l=coms.length;i<l;i++){
+				var c=coms[i];
+				if(c.type!=="speed_change" && c.type!=="color_data"){
+					//no miss!
+					if(c.freeze){
+						pf_score += h.scorevalue.freezegood;
+					}else{
+						pf_score += h.scorevalue.great;
+					}	
+				}
+			}
+			t.pf_score=pf_score;
 		});
 		t.speed=dobj.speedlock;
 	}
@@ -1022,6 +1105,39 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		});
 
 	},
+	showResult:function(game){
+		//結果を表示する
+		var parent=this.parent, host=parent.host, h=host.header;
+		var score=this.score;	//スコアオブジェクト
+		//ポイントに換算
+		var scorepoint=0;
+		["great","good","bad","miss","freezegood","freezebad"].forEach(function(x){
+			scorepoint+=h.scorevalue[x]*score[x];
+		});
+		//割合を出す
+		var rate=scorepoint/this.pf_score*100;
+		//低いほうからチェックしよう
+		var rank, rank_border=-1;
+		for(var rankname in h.rankstr){
+			if(rate>=h.rankstr[rankname] && h.rankstr[rankname]>rank_border){
+				//もっと上の
+				rank=rankname;
+				rank_border=h.rankstr[rankname];
+			}
+		}
+		//特殊
+		if(rate<100 && score.miss===0 && score.freezebad===0){
+			rank=h.rankspecial.fullcomplete;
+		}
+		//失敗したときはh.rankspecial.fail
+		//結果を表示してもらう
+		parent.openPanel(game,"result",{
+			score:score,
+			scorepoint:scorepoint,
+			pf_score:this.pf_score,
+			rank:rank,
+		});
+	},
 	//h: header
 	getscore:function(scorename,h){
 		this.score[scorename]++;
@@ -1032,43 +1148,56 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 	renderInit:function(view,game){
 		var t=this, user=this.user, k=this.user.keys,parent=this.parent, host=parent.host, ev=this.event, store=view.getStore(parent), sth=view.getStore(host);
 		//現在のリソース状態を報告する
+		function mediaReady(){
+			//まだreadyでないなら報告する必要がある
+			if(!parent.ready){
+				user.event.emit("mediaReady");
+			}	
+			//終了したらアレする
+			store.audio.addEventListener("ended",function handler(e){
+				user.event.emit("mediaEnded");
+				e.target.pause();
+				e.target.removeEventListener("ended",handler,false);
+			},false);
+		}
 		if(store.audio.readyState===4){
 			//準備ができた HAVE_ENOUGH_DATA
-			user.event.emit("mediaReady");
+			mediaReady();
 		}else{
 			store.audio.addEventListener("canplaythrough",function handler(e){
-				user.event.emit("mediaReady");
+				mediaReady();
 				store.audio.removeEventListener("canplaythrough",handler,false);
 			},false);
 		}
 		//描画するぞ!!!
 		host.useHeader(function(h){
 			//me: 繰り返しするアレ clear:解除するアレ
-			var me, m;
+			var me, m, cancel;
 			if(me=window.requestAnimationFrame){
-				clear=window.cancelRequestAnimationFrame;
+				cancel=window.cancelRequestAnimationFrame;
 			}else if(me=window.webkitRequestAnimationFrame){
-				clear=window.webkitCancelRequestAnimationFrame;
+				cancel=window.webkitCancelRequestAnimationFrame;
 			}else if(me=window.mozRequestAnimationFrame){
-				clear=window.mozCancelRequestAnimationFrame;
+				cancel=window.mozCancelRequestAnimationFrame;
 			}else if(me=window.oRequestAnimationFrame){
-				clear=window.oRequestAnimationFrame;
+				cancel=window.oCancelRequestAnimationFrame;
 			}
 			if(me){
 				m=function(func){
 					var flag=true;//継続フラグ
-					me(c);
+					var id=me(c);
 					return clear;
 					
 					function c(){
 						func();
 						if(flag){
-							me(c);
+							id=me(c);
 						}
 					}
 					
 					function clear(){
 						flag=false;
+						cancel(id);
 					}
 				};
 			}
@@ -1130,6 +1259,12 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			//解除の用意
 			store.clearTimer=m(t.renderFrame.bind(t,canvas,ctx,h,parent,host,store,sth));
 
+			ev.on("die",function(){
+				store.clearTimer();
+				//デフォルトのキー入力に戻す
+				store.uncapture();
+				user.useStandardKeyCapture();
+			});
 			//キー入力
 			user.unuseStandardKeyCapture();	//デフォルトは切る
 			store.uncapture=user.capture(function(direction,keycode){
@@ -1194,13 +1329,17 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		var host=this.parent.host, t=this, p=this.parent;
 		var h=host.header, st=view.getStore(host);	//hostのデータ
 		if(!h)return;
-		if(host.mediaTimer.getTime()>=0)return;	//もう開始している
+		if(host.state!==host.STATE_PREPARING>=0)return;	//もう開始している
 		ctx.fillStyle=h.color.color;
 		ctx.font=h.font.normal;
 		ctx.fillText("待機中...",50,50);
 	},
 	//毎フレームの描画
 	renderFrame:function(canvas,ctx,h,p,host,store,sth){
+		if(host.state!==host.STATE_PLAYING){
+			//まだ始まっていない
+			return;
+		}
 		//まず真っ黒に塗る
 		var audio=store.audio;
 		ctx.fillStyle=h.color.background;
@@ -1487,6 +1626,56 @@ ScoreEffect.prototype.main=function(ctx){
 	ctx.fillText(h.scorename[this.score],this.x,this.y);
 	ctx.restore();
 };
+function ResultPanel(game,event,param){
+	ChildPanel.apply(this,arguments);
+	//スコア情報
+	var opt=param.option;
+	this.score=opt.score;
+	this.scorepoint=opt.scorepoint;
+	//割合
+	this.pf_score=opt.pf_score;
+	this.rate=this.scorepoint/this.pf_score*100;
+	this.rank=opt.rank;
+	//戻る準備
+	this.ready=false;
+}
+ResultPanel.prototype=Game.util.extend(ChildPanel,{
+	init:function(game,event,param){
+		var t=this;
+		this.user.event.on("keydown",khandler);
+		this.event.on("die",function(){
+			t.user.event.removeListener("keydown",khandler);
+		});
+		function khandler(dir,c){
+			//キー押したら最初に戻る
+			t.parent.event.emit("back");
+		}
+	},
+	renderInit:function(view,game){
+		//実際は描画しないけど初期化だけしちゃう系
+		var t=this, k=this.user.keys, host=this.parent.host, ev=this.event;
+		return document.createElement("div");
+	},
+	renderCanvas:function(canvas,ctx,view){
+		var host=this.parent.host, t=this;
+		var h=host.header;
+		var score=this.score, rank=this.rank;
+		
+		//ランク表示
+		host.writebi(ctx,h.fontinfo.rank,rank);
+		//スコア
+		ctx.font=h.font.score;
+		var i=0;
+		for(var x in score){
+			ctx.fillStyle=h.color.score[x];
+			//hard coding
+			ctx.fillText(h.scorename[x]+" "+score[x],h.infox,80+i*25);
+			i++;
+		}
+		//次へ
+		host.writebi(ctx,h.fontinfo.musictitle.mode_desc,"Press any key to return");
+	},
+});
 // ゲーム開始
 var o=new Onigiri;
 o.init();
