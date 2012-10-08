@@ -114,6 +114,7 @@ OnigiriHost.prototype={
 		//準備ができた
 		event.on("ready",function(panel){
 			//全て準備ができたかどうか確認する
+			console.log("readiiiiii",panel.ready);
 			if(t.users.every(function(p){return p.ready})){
 				//スタートだ!!
 				t.mediaTimer.clean();
@@ -171,14 +172,14 @@ OnigiriHost.prototype={
 	renderTop:true,
 	renderInit:function(view){
 		var t=this;
-		var ev=view.getEvent(), store=view.getStore();
+		var store=view.getStore();
 		var div=document.createElement("div");
 		//イベント
 		//オーディオマネージャ
 		store.mediaController=new MediaController();
 		store.mediaController.pause();
 		//オーディオ読み込み指令
-		ev.on("ready",function(){
+		this.event.on("ready",function(){
 			//タイムライン開始（オーディオ開始）
 			var timer=t.mediaTimer;
 			timer.addFunc(0,function(){
@@ -550,11 +551,17 @@ PlayerPanel.prototype={
 		});
 		//メディア準備
 		user.event.on("mediaReady",function(){
+			event.emit("ready");
+		});
+		event.on("ready",function(){
 			t.ready=true;
 			t.host.event.emit("ready",t);
 		});
 		//メディア終了
 		user.event.on("mediaEnded",function(){
+			event.emit("mediaEnded");
+		});
+		event.on("mediaEnded",function(){
 			t.ended=true;
 			t.host.event.emit("ended",t);
 		});
@@ -572,12 +579,10 @@ PlayerPanel.prototype={
 		c.width=h.canvas.x, c.height=h.canvas.y;
 		store.canvas=c;
 		//メディアスターと
-		var evv=view.getEvent(host);
-		evv.on("ready",function(){
+		host.event.on("ready",function(){
 			//0になったらはじめる
 			host.mediaTimer.addFunc(0,function(){
 				//ほんとうはmediaController側で再生されるはずだけど・・・
-				console.log("audio",store.audio.duration);
 				store.audio.play();
 			});
 		});
@@ -957,6 +962,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		var user=this.user, t=this, host=this.parent.host;
 		//矢印ヒット！
 		user.event.on("keyinput",function(obj){
+			event.emit("keyinput",obj);
+		});
+		event.on("keyinput",function(obj){
 			var frame=obj.frame, targetframe=obj.targetframe, type=obj.type;	//合致するものを探す
 			var h=host.header, coms=t.coms;
 			for(var i=0,l=coms.length;i<l;i++){
@@ -994,6 +1002,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		});
 		//矢印ロスト!
 		user.event.on("lose",function(obj){
+			event.emit("lose",obj);
+		});
+		event.on("lose",function(obj){
 			var frame=obj.frame, type=obj.type;
 			var h=host.header, coms=t.coms;
 			for(var i=0,l=coms.length;i<l;i++){
@@ -1015,6 +1026,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		});
 		//フリーズヒット!
 		user.event.on("freezeinput",function(obj){
+			event.emit("freezeinput",obj);
+		});
+		event.on("freezeinput",function(obj){
 			var frame=obj.frame, targetframe=obj.targetframe, type=obj.type;	//合致するものを探す
 			var h=host.header, coms=t.coms;
 			for(var i=0,l=coms.length;i<l;i++){
@@ -1036,6 +1050,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		});
 		//すピード変更
 		user.event.on("speed_change",function(obj){
+			event.emit("speed_change",obj);
+		});
+		event.on("speed_change",function(obj){
 			var frame=obj.frame, speed=obj.speed;
 			var h=host.header, coms=t.coms;
 			for(var i=0,l=coms.length;i<l;i++){
@@ -1051,6 +1068,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		});
 		//色変更
 		user.event.on("color_data",function(obj){
+			event.emit("color_data",obj);
+		});
+		event.on("color_data",function(obj){
 			var frame=obj.frame, setcolor=obj.setcolor;
 			var h=host.header, coms=t.coms;
 			for(var i=0,l=coms.length;i<l;i++){
