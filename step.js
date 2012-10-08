@@ -602,6 +602,8 @@ PlayerPanel.prototype={
 	},
 	renderInit:function(view){
 		var t=this, host=this.host, h=host.header, store=view.getStore();
+		//囲いのdiv
+		var div=document.createElement("div");
 		//canvasを作る
 		var c=document.createElement("canvas");
 		c.width=h.canvas.x, c.height=h.canvas.y;
@@ -625,13 +627,43 @@ PlayerPanel.prototype={
 			//止めておくぞ!
 			store.audio.pause();
 		});
-		return c;
+		div.appendChild(c);
+		store.canvas=c;
+		return div;
 	},
 	render:function(view){
-		var c=view.getItem(), store=view.getStore(), h=this.host.header;
+		var store=view.getStore(), h=this.host.header;
+		var c=store.canvas;
 		//メディア読み込み
 		if(!store.audio && h){
-			var au=new Audio();
+			var au=h.mediaType==="video" ? new Video() : new Audio();
+			if(h.mediaType==="video"){
+				//ビデオ調整
+				au.addEventListener("loadedmetadata",function handler(e){
+					var aspect= au.videoWidth/au.videoHeight;
+					if(isFinite(aspect)){
+						//ビデオの大きさちゃんとある
+						var cas=c.width/c.height;
+						if(cas>=aspect){
+							//キャンバスのほうが横長
+							au.width=c.height*aspect;
+							au.height=c.height;
+						}else{
+							au.width=c.width;
+							au.height=c.width/aspect;
+						}
+						var div=view.getItem();	//親
+						div.appendChild(au);
+						div.style.position="relative";
+						div.style.left="0px",div.style.top="0px";
+						c.style.position="relative";
+						c.style.left="0px",c.style.top="0px";
+						c.style.zIndex="1000";
+					}
+
+					e.target.removeEventListener("loadedmetadata",handler,false);
+				},false);
+			}
 			au.preload="auto";
 			au.autoplay=true;	//自動読み込み有効にするため
 			au.src=h.mediaURI;
