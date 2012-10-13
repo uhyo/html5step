@@ -687,6 +687,7 @@ PlayerPanel.prototype={
 						div.appendChild(au);
 						div.style.position="relative";
 						div.style.left="0px",div.style.top="0px";
+						div.style.width=c.width+"px", div.style.height=c.height+"px";
 						c.style.position="absolute";
 						c.style.left="0px",c.style.top="0px";
 						c.style.zIndex="1000";
