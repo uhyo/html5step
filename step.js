@@ -178,6 +178,38 @@ OnigiriHost.prototype={
 		var store=view.getStore();
 		var div=document.createElement("div");
 		//イベント
+		//メディアをXHRで読み込む
+		this.useHeader(function(h){
+			var xhr=new XMLHttpRequest;
+			var mediaLoading={};	//メディア情報を記録するオブジェクト
+			mediaLoading.callbacks=[];	//コールバックを呼び出す
+			xhr.responseType="blob";	//Blobで読み込む
+			xhr.onload=function(e){
+				var xhr=e.target;
+				var urlobj = window.URL ? window.URL : window.webkitURL ? window.webkitURL : window.mozURL ? window.mozURL : window.oURL ? window.oURL : null;
+				mediaLoading.blob=xhr.response;
+				mediaLoading.bloburl=urlobj.createObjectURL(xhr.response);	//createObjectURLで作成した
+				//貯めてあるコールバックを呼び出す
+				mediaLoading.callbacks.forEach(function(f){
+					f(mediaLoading);
+				});
+				mediaLoading.callbacks=[];
+			};
+			xhr.open("GET",h.mediaURI);
+			xhr.send();
+			//読み込む
+			store.mediaLoading=mediaLoading;	//ストアに置いておく
+			//メディアローディングユーティリティ
+			mediaLoading.onload=function(callback){
+				//既に読み込めていたら即座に呼び出す
+				if(xhr.readyState===4){
+					callback(this);
+				}else{
+					//貯める
+					this.callbacks.push(callback);
+				}
+			};
+		});
 		//オーディオマネージャ
 		store.mediaController=new MediaController();
 		store.mediaController.pause();
@@ -631,7 +663,7 @@ PlayerPanel.prototype={
 		return div;
 	},
 	render:function(view){
-		var store=view.getStore(), h=this.host.header;
+		var store=view.getStore(),host=this.host, h=host.header, hstore=view.getStore(host);
 		var div=view.getItem();	//親
 		var c=store.canvas;
 		//メディア読み込み
@@ -668,7 +700,10 @@ PlayerPanel.prototype={
 			}
 			au.preload="auto";
 			au.autoplay=true;	//自動読み込み有効にするため
-			au.src=h.mediaURI;
+			//au.src=h.mediaURI;
+			hstore.mediaLoading.onload(function(m){
+				au.src=m.bloburl;	//メディアをBlobから読み込む
+			});
 			au.muted=true;
 			//プレイ時は止める
 			au.addEventListener("play",function handler(e){
