@@ -1220,16 +1220,20 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 									 31:[h.color.freezeband],
 									 40:[h.color.freezehitarrow],
 									 41:[h.color.freezehitband],
-									 50:[h.color.arrow,h.color.freezearrow],
+									 50:[h.color.freezearrow,h.color.freezeband],
+									 55:[h.color.freezehitarrow,h.color.freezehitband],
+									 60:[h.color.freezearrow,h.color.freezeband],
+									 61:[h.color.freezehitarrow,h.color.freezehitband],
 
 									 100:[h.color.arrow],
 								 })[setcolor];
 
 								 var datas=["left_data","down_data","up_data","right_data"];
 
-								 if(setcolor===100){
+								 if(setcolor===100 || setcolor===60 || setcolor===61){
 									 datas[4]="space_data";
 								 }
+								 if(!pa)break;
 
 								 datas.forEach(function(x){
 									 pa.forEach(function(y){
@@ -1555,7 +1559,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 						frame:c.frame,
 						setcolor:c.setcolor,
 					});
-					if(h.arrowType=="grayimage")this.setArrowImage();
+					//if(h.arrowType==="grayimage")this.setArrowImage();
 					coms.splice(i,1);
 					i--,l--;
 				}
