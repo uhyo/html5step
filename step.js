@@ -1544,19 +1544,21 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				continue;
 			}
 			if(c.frame<nowf){
-				if(c.type=="speed_change"){
+				if(c.type==="speed_change" && !c.done){
 					//speed change
 					this.user.event.emit("speed_change",{
 						frame:c.frame,
 						speed:c.speed,
 					});
+					c.done=true;	//処理済みマーク
 					//speed=c.speed;	//スピード変更
-				}else if(c.type=="color_data"){
+				}else if(c.type==="color_data" && !c.done){
 					//色変更
 					this.user.event.emit("color_data",{
 						frame:c.frame,
 						setcolor:c.setcolor,
 					});
+					c.done=true;	//処理済みマーク
 					//if(h.arrowType==="grayimage")this.setArrowImage();
 				}
 			}
