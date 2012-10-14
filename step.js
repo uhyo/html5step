@@ -209,6 +209,8 @@ OnigiriHost.prototype={
 					this.callbacks.push(callback);
 				}
 			};
+			//自分は横2つ分の幅
+			div.style.width=(h.canvas.x*2)+"px";
 		});
 		//オーディオマネージャ
 		store.mediaController=new MediaController();
@@ -639,6 +641,8 @@ PlayerPanel.prototype={
 		//canvasを作る
 		var c=document.createElement("canvas");
 		c.width=h.canvas.x, c.height=h.canvas.y;
+		div.style.width=c.width+"px", div.style.height=c.height+"px";
+		div.style.display="inline-block";	//横並びがいい
 		store.canvas=c;
 		//メディアスターと
 		host.event.on("start",function(){
