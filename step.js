@@ -1551,8 +1551,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 						speed:c.speed,
 					});
 					//speed=c.speed;	//スピード変更
-					coms.splice(i,1);
-					i--,l--;
 				}else if(c.type=="color_data"){
 					//色変更
 					this.user.event.emit("color_data",{
@@ -1560,8 +1558,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 						setcolor:c.setcolor,
 					});
 					//if(h.arrowType==="grayimage")this.setArrowImage();
-					coms.splice(i,1);
-					i--,l--;
 				}
 			}
 			if(c.freeze && c.hit && c.end<=nowf){
