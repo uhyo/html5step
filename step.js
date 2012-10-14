@@ -1385,7 +1385,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			});
 			store.arrowy=h.arrowy;
 			if(parent.config.Reverse=="on"){
-				store.arrowy=canvas.height-arrowy+30;	//hard coding
+				store.arrowy=canvas.height-store.arrowy+30;	//hard coding
 			}
 			//背景ありかどうか
 			store.background= h.mediaType==="video" ? store.audio :
