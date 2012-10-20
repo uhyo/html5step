@@ -78,12 +78,19 @@ Onigiri.prototype={
 			});
 			//ユーザー出現
 			game.event.on("entry",function(user){
-				var panel=game.add(PlayerPanel,{
-					host:host,
-					user:user,
+				host.useHeader(function(h){
+					var panel=game.add(PlayerPanel,{
+						host:host,
+						user:user,
+					});
+					if(host.users.length<h.maxPlayers){
+						//まだ入る枠がある
+						host.event.emit("addPlayer",panel);
+						panel.openPanel(game,"title");
+					}else{
+						//観戦枠
+					}
 				});
-				host.event.emit("addPlayer",panel);
-				panel.openPanel(game,"title");
 			});
 		});
 		game.init(Game.ClientDOMView);
@@ -147,6 +154,11 @@ OnigiriHost.prototype={
 					x.openPanel(game,"title");
 				});
 			}
+		});
+		//いなくなった
+		event.on("bye",function(panel){
+			//いない状態にする
+			panel.openPanel(game,"gone");
 		});
 	},
 	//--internal
@@ -574,6 +586,8 @@ OnigiriHost.prototype={
 		
 		//時間を表示するか
 		timeinfo:true,
+		//オンラインsettings
+		maxPlayers:2,	//最大同時プレイ人数
 	},
 };
 //プレイヤーパネル
@@ -584,6 +598,7 @@ function PlayerPanel(game,event,param){
 	this.ready=false;	//ゲーム開始準備ができたかどうか
 	this.ended=false;	//演奏終了したかどうか
 	this.back=false;	//戻りたいかどうか
+	this.gone=false;	//既にいないかどうか
 	//デフォルトコンフィグをセット
 	var c=this.config={};
 	this.host.useHeader(function(h){
@@ -633,6 +648,16 @@ PlayerPanel.prototype={
 			t.host.event.emit("back",t);
 		});
 
+		//接続が切れた
+		user.event.on("disconnect",function(){
+			event.emit("bye");
+		});
+		event.on("bye",function(){
+			t.gone=true;
+			t.ended=true;
+			t.back=true;
+			t.host.event.emit("bye",t);
+		});
 	},
 	renderInit:function(view){
 		var t=this, host=this.host, h=host.header, store=view.getStore();
@@ -743,37 +768,40 @@ PlayerPanel.prototype={
 	},
 	//--internal
 	openPanel:function(game,mode,option){
-		if(this.panel){
-			this.panel.event.emit("die");
-		}
-		var con;
-		switch(mode){
-			case "title":
-				con=TitlePanel;
-				break;
-			case "keyconfig":
-				con=KeyConfigPanel;
-				break;
-			case "config":
-				con=ConfigPanel;
-				break;
-			case "game":
-				con=GamePanel;
-				break;
-			case "result":
-				con=ResultPanel;
-				break;
-		}
-		if(con){
-			var panel=game.add(con,{
-				user:this.user,
-				parent:this,
-				option:option,
-			});
-			this.event.emit("openPanel",panel);
-			return panel;
-		}
-		return null;
+		game.internal(function(){
+			if(this.panel){
+				this.panel.event.emit("die");
+			}
+			var con;
+			switch(mode){
+				case "title":
+					con=TitlePanel;
+					break;
+				case "keyconfig":
+					con=KeyConfigPanel;
+					break;
+				case "config":
+					con=ConfigPanel;
+					break;
+				case "game":
+					con=GamePanel;
+					break;
+				case "result":
+					con=ResultPanel;
+					break;
+				case "gone":
+					con=GonePanel;
+					break;
+			}
+			if(con){
+				var panel=game.add(con,{
+					user:this.user,
+					parent:this,
+					option:option,
+				});
+				this.event.emit("openPanel",panel);
+			}
+		}.bind(this));
 	},
 	showResult:function(game){
 		//子のgamingpanelのresult表示
@@ -1082,7 +1110,7 @@ function GamePanel(game,event,param){
 }
 GamePanel.prototype=Game.util.extend(ChildPanel,{
 	init:function(game,event,param){
-		var user=this.user, t=this, host=this.parent.host;
+		var user=this.user, t=this, parent=this.parent, host=parent.host;
 		//矢印ヒット！
 		user.event.on("keyinput",function(obj){
 			event.emit("keyinput",obj);
@@ -1403,6 +1431,10 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			store.effects=[];
 			ev.on("effect",function(obj){
 				//エフェクト発動!!!!!
+				if(parent.config.Reverse==="on"){
+					//エフェクト位置も調整
+					obj.y=canvas.height-obj.y+30;	//hard coding
+				}
 				store.effects.push(new ScoreEffect(obj.x,obj.y,obj.score,h));
 			});
 			//矢印色変更があった
@@ -1417,6 +1449,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				store.clearTimer();
 				//デフォルトのキー入力に戻す
 				if(user.internal){
+					console.log("uncapture!");
 					store.uncapture();
 					user.useStandardKeyCapture();
 				}
@@ -1830,6 +1863,24 @@ ResultPanel.prototype=Game.util.extend(ChildPanel,{
 		}
 		//次へ
 		host.writebi(ctx,h.fontinfo.musictitle.mode_desc,"Press any key to return");
+	},
+});
+function GonePanel(game,event,param){
+	ChildPanel.apply(this,arguments);
+}
+GonePanel.prototype=Game.util.extend(ChildPanel,{
+	init:function(game,event,param){
+	},
+	renderInit:function(view,game){
+		//実際は描画しないけど初期化だけしちゃう系
+		var t=this, k=this.user.keys, host=this.parent.host, ev=this.event;
+		return document.createElement("div");
+	},
+	renderCanvas:function(canvas,ctx,view){
+		var host=this.parent.host, h=host.header;
+		
+		//hard coding
+		host.writebi(ctx,h.fontinfo.rank,"GONE");
 	},
 });
 // ゲーム開始
