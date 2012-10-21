@@ -79,6 +79,10 @@ Onigiri.prototype={
 			//ユーザー出現
 			game.event.on("entry",function(user){
 				host.useHeader(function(h){
+					if(host.state!==host.STATE_PREPARING){
+						//観戦枠
+						return;
+					}
 					var panel=game.add(PlayerPanel,{
 						host:host,
 						user:user,
@@ -121,7 +125,9 @@ OnigiriHost.prototype={
 		//準備ができた
 		event.on("ready",function(panel){
 			//全て準備ができたかどうか確認する
-			if(t.users.every(function(p){return p.ready})){
+			var h=t.header;
+			var minNumber= game.env==="standalone" ? 1 : h.minPlayers || 1;	//対戦最小人数
+			if(t.users.length>=minNumber && t.users.every(function(p){return p.ready})){
 				//スタートだ!!
 				t.mediaTimer.clean();
 				t.mediaTimer.setTime(-1600);
@@ -149,6 +155,8 @@ OnigiriHost.prototype={
 			if(t.users.every(function(p){return p.back})){
 				//終了した。結果を知らせる
 				t.state=t.STATE_PREPARING;
+				//いない人は除く
+				t.users=t.users.filter(function(x){return !x.gone});
 				t.users.forEach(function(x){
 					x.event.emit("initState");
 					x.openPanel(game,"title");
@@ -158,7 +166,12 @@ OnigiriHost.prototype={
 		//いなくなった
 		event.on("bye",function(panel){
 			//いない状態にする
-			panel.openPanel(game,"gone");
+			if(t.state===t.STATE_PREPARING){
+				//いないぞ!
+				t.users=t.users.filter(function(x){return x!==panel});
+			}else{
+				panel.openPanel(game,"gone");
+			}
 		});
 	},
 	//--internal
@@ -221,37 +234,158 @@ OnigiriHost.prototype={
 					this.callbacks.push(callback);
 				}
 			};
+			//ロード後メディア管理
+			var mediaPlayer=store.mediaPlayer={};
+			mediaPlayer.host=t, mediaPlayer.view=view;
+			mediaPlayer.callbacks=[];
+			mediaPlayer._getMediaController=function(){
+				if(this.mediaController)return this.mediaController;
+				if("undefined" !== typeof MediaController){
+					return this.mediaController=new MediaController();
+				}
+				return null;
+			};
+			//オーディオ登録
+			mediaPlayer.registerMedia=function(audio){
+				var m=this._getMediaController();
+				if(m){
+					audio.controller=m;
+				}
+			};
+			//オーディオ全てに
+			mediaPlayer.forEachMedia=function(callback){
+				var host=this.host;
+				host.users.forEach(function(panel){
+					var st=this.view.getStore(panel);
+					callback(st.audio);
+				},this);
+			};
+			mediaPlayer.mapMedia=function(callback){
+				var host=this.host;
+				host.users.map(function(panel){
+					var st=this.view.getStore(panel);
+					return callback(st.audio);
+				},this);
+			};
+			mediaPlayer.filterMedia=function(callback){
+				var host=this.host;
+				return host.users.filter(function(panel){
+					var st=this.view.getStore(panel);
+					return callback(st.audio);
+				},this);
+			};
+			mediaPlayer.everyMedia=function(callback){
+				var host=this.host;
+				return host.users.every(function(panel){
+					var st=this.view.getStore(panel);
+					return callback(st.audio);
+				},this);
+			};
+			mediaPlayer.play=function(time){
+				//演奏開始
+				this.oncanplaythrough(function(){
+					var m=this._getMediaController();
+					if(m){
+						m.currentTime=time||0;
+						m.play();
+					}else{
+						//no controller!
+					}
+					//Mediaありなら必要ないはずだけど・・・
+					this.forEachMedia(function(media){
+						if(!m){
+							media.currentTime=time||0;
+						}
+						media.play();
+					});
+				}.bind(this));
+			};
+			//ポーズして戻す
+			mediaPlayer.reset=function(){
+				var m=this._getMediaController();
+				if(m){
+					m.pause();
+					m.currentTime=0;
+				}else{
+					//no controller!
+				}
+				//Mediaありなら必要ないはずだけど・・・
+				this.forEachMedia(function(media){
+					if(!m){
+						media.currentTime=0;
+					}
+					media.pause();
+				});
+			};
+			//イベントを監視するやつ
+			mediaPlayer._multi=function(eventname,mediaChecker,handler){
+				if(this.everyMedia(mediaChecker)){	//mediaChecker:mediaを引数にとって条件満たすか調べる
+					//既に読み込んでいる
+					handler();
+					return;
+				}
+				var m=this._getMediaController();
+				if(m){
+					//mapありなら・・・
+					m.addEventListener(eventname,function h(e){
+						handler();
+						m.removeEventListener(eventname,h,false);
+					},false);
+				}else{
+					//ないなら・・・
+					var h=function(){
+						if(this.everyMedia(mediaChecker)){
+							//読み込めた
+							handler();
+							return;
+						}
+					}.bind(this);
+					//全部を監視する
+					this.forEachMedia(function(media){
+						media.addEventListener(eventname,function ha(e){
+							h();
+							e.target.removeEventListener(eventname,ha,false);
+						},false);
+					});
+				}
+			};
+			mediaPlayer.oncanplaythrough=function(callback){
+				this._multi("canplaythrough",function(media){return media.readyState===4},callback);
+			};
+			//終了
+			mediaPlayer.onended=function(callback){
+				this._multi("ended",function(media){return media.ended},callback);
+			};
 			//自分は横2つ分の幅
 			div.style.width=(h.canvas.x*2)+"px";
+			//読み込めたらmediaReadyを報告する
+			if(this.state===this.STATE_PLAYING){
+				//すでに開始していたら追いつく
+				if(t.state===t.STATE_PLAYING){
+					store.mediaPlayer.play(t.mediaTimer.getTime/1000);
+				}
+			}
+			/*store.mediaPlayer.oncanplaythrough(function(){
+				//自分のユーザーは報告する
+				game.user.event.emit("mediaReady");
+				store.mediaPlayer.onended(function(){
+					//終了も報告する
+					game.user.event.emit("mediaEnded");
+				});
+			});*/
 		});
-		//オーディオマネージャ
-		store.mediaController=new MediaController();
-		store.mediaController.pause();
-		//読み込めたらmediaReadyを報告する
-		store.mediaController.addEventListener("canplaythrough",function handler(e){
-			//自分のユーザーは報告する
-			game.user.event.emit("mediaReady");
-			e.target.removeEventListener("canplaythrough",handler,false);
-			store.mediaController.addEventListener("ended",function handler2(e){
-				//終了も報告する
-				game.user.event.emit("mediaEnded");
-			},false);
-		},false);
 		//オーディオ読み込み指令
 		this.event.on("start",function(){
 			//タイムライン開始（オーディオ開始）
 			var timer=t.mediaTimer;
 			timer.addFunc(0,function(){
 				//0になったらオーディオ開始
-				store.mediaController.currentTime=0;
-				//ほんとはplay()で全て再生されるはずだけど・・・（ブラウザ対応待ち）
-				store.mediaController.play();
+				store.mediaPlayer.play(0);
 			});
 		});
 		//終了したら戻す
 		this.event.on("endgame",function(){
-			store.mediaController.pause();
-			store.mediaController.currentTime=0;
+			store.mediaPlayer.reset();
 		});
 		return div;
 	},
@@ -587,6 +721,7 @@ OnigiriHost.prototype={
 		//時間を表示するか
 		timeinfo:true,
 		//オンラインsettings
+		minPlayers:1,	//最小同時プレイ人数
 		maxPlayers:2,	//最大同時プレイ人数
 	},
 };
@@ -745,7 +880,8 @@ PlayerPanel.prototype={
 			store.audio=au;
 			//コントローラーに登録
 			var st2=view.getStore(this.host);
-			au.controller=st2.mediaController;
+			//au.controller=st2.mediaController;
+			st2.mediaPlayer.registerMedia(au);
 			
 			if(h.mediaType==="audioWithImage"){
 				//静止画像が必要
@@ -1074,11 +1210,13 @@ function GamePanel(game,event,param){
 
 	loadHumen();
 	//ゲーム開始要求
+	console.log(parent.mediaReady);
 	if(parent.mediaReady){
 		parent.event.emit("ready");
 	}else{
 		//まだ読み込めていない
 		parent.event.once("mediaReady",function(){
+			console.log("red!");
 			//読み込め次第
 			parent.event.emit("ready");
 		});
@@ -1324,34 +1462,18 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 	},
 	renderInit:function(view,game){
 		var t=this, user=this.user, k=this.user.keys,parent=this.parent, host=parent.host, ev=this.event, store=view.getStore(parent), sth=view.getStore(host);
-		/*//現在のリソース状態を報告する
-		function mediaReady(){
-			//まだreadyでないなら報告する必要がある
-			if(!parent.ready){
+		//再生可能になったら報告する
+		if(user.internal){
+			sth.mediaPlayer.oncanplaythrough(function(){
+				//自分のユーザーは報告する
+				console.log("cnaplay!");
 				user.event.emit("mediaReady");
-			}	
-			//終了したらアレする
-			store.audio.addEventListener("ended",handler,false);
-			store.audio.addEventListener("pause",handler,false);
-			//終了ハンドラ
-			function handler(e){
-				console.log("ended1",host.users.indexOf(parent));
-				user.event.emit("mediaEnded");
-				e.target.removeEventListener("ended",handler,false);
-				e.target.removeEventListener("pause",handler,false);
-				e.target.pause();
-			}
+				sth.mediaPlayer.onended(function(){
+					//終了も報告する
+					user.event.emit("mediaEnded");
+				});
+			});
 		}
-		if(store.audio.controller.readyState===4){
-			//準備ができた HAVE_ENOUGH_DATA
-			mediaReady();
-		}else{
-			store.audio.controller.addEventListener("canplaythrough",function handler(e){
-				mediaReady();
-				store.audio.removeEventListener("canplaythrough",handler,false);
-			},false);
-		}*/
-		//描画するぞ!!!
 		host.useHeader(function(h){
 			//me: 繰り返しするアレ clear:解除するアレ
 			var me, m, cancel;
