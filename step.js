@@ -237,6 +237,7 @@ OnigiriHost.prototype={
 			//ロード後メディア管理
 			var mediaPlayer=store.mediaPlayer={};
 			mediaPlayer.host=t, mediaPlayer.view=view;
+			mediaPlayer.mediaLoading=mediaLoading;
 			mediaPlayer.callbacks=[];
 			mediaPlayer._getMediaController=function(){
 				if(this.mediaController)return this.mediaController;
@@ -283,21 +284,30 @@ OnigiriHost.prototype={
 			};
 			mediaPlayer.play=function(time){
 				//演奏開始
-				this.oncanplaythrough(function(){
-					var m=this._getMediaController();
-					if(m){
-						m.currentTime=time||0;
-						m.play();
-					}else{
-						//no controller!
-					}
-					//Mediaありなら必要ないはずだけど・・・
-					this.forEachMedia(function(media){
-						if(!m){
-							media.currentTime=time||0;
+				this.mediaLoading.onload(function(){
+					this.oncanplaythrough(function(){
+						var m=this._getMediaController();
+						var tim;	//時間
+						if("function"===typeof time){
+							tim=time();
+						}else{
+							//数字だろう
+							tim=time||0;
 						}
-						media.play();
-					});
+						if(m){
+							m.currentTime=tim;
+							m.play();
+						}else{
+							//no controller!
+						}
+						//Mediaありなら必要ないはずだけど・・・
+						this.forEachMedia(function(media){
+							if(!m){
+								media.currentTime=tim;
+							}
+							media.play();
+						});
+					}.bind(this));
 				}.bind(this));
 			};
 			//ポーズして戻す
@@ -359,11 +369,11 @@ OnigiriHost.prototype={
 			//自分は横2つ分の幅
 			div.style.width=(h.canvas.x*2)+"px";
 			//読み込めたらmediaReadyを報告する
-			if(this.state===this.STATE_PLAYING){
+			if(t.state===t.STATE_PLAYING){
 				//すでに開始していたら追いつく
-				if(t.state===t.STATE_PLAYING){
-					store.mediaPlayer.play(t.mediaTimer.getTime/1000);
-				}
+				store.mediaPlayer.play(function(){
+					return t.mediaTimer.getTime()/1000;
+				});
 			}
 			/*store.mediaPlayer.oncanplaythrough(function(){
 				//自分のユーザーは報告する
@@ -1216,7 +1226,6 @@ function GamePanel(game,event,param){
 	}else{
 		//まだ読み込めていない
 		parent.event.once("mediaReady",function(){
-			console.log("red!");
 			//読み込め次第
 			parent.event.emit("ready");
 		});
@@ -1466,7 +1475,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		if(user.internal){
 			sth.mediaPlayer.oncanplaythrough(function(){
 				//自分のユーザーは報告する
-				console.log("cnaplay!");
 				user.event.emit("mediaReady");
 				sth.mediaPlayer.onended(function(){
 					//終了も報告する
