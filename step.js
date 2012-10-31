@@ -107,6 +107,13 @@ function OnigiriHost(game,event,param){
 	this.users=[];	//PlayerPanel
 	this.mediaTimer=game.getTimer();
 	this.state=this.STATE_PREPARING;
+	//no transfer!
+	Object.defineProperty(this,"_loadHeaderCallbacks",{
+		value:[],
+		configurable:true,
+		enumerable:false,
+		writable:false,
+	});
 }
 OnigiriHost.prototype={
 	//game state
@@ -191,6 +198,11 @@ OnigiriHost.prototype={
 		this.modes=Object.keys(opt.score).map(function(x){opt.score[x].name=x;return opt.score[x]});
 		//ヘッダが取得できた
 		this.event.emit("getHeader",opt);
+		//コールバックを戻す
+		this._loadHeaderCallbacks.forEach(function(cb){
+			cb(opt);
+		});
+		this._loadHeaderCallbacks.length=0;
 
 		//this.event.emit("loadAudio",opt.mediaURI);
 		//矢印ロード
@@ -450,7 +462,8 @@ OnigiriHost.prototype={
 			cb(this.header);
 			return;
 		}
-		this.event.once("getHeader",cb);
+		//this.event.once("getHeader",cb);
+		this._loadHeaderCallbacks.push(cb);
 	},
 	//----- client
 	//infoオブジェクトをもとに書き込み ox,oy: もとの位置からのずれ
