@@ -675,7 +675,17 @@ OnigiriHost.prototype={
 			space_data:280,
 		},
 		//情報表示位置x
-		infox:380,
+		//infox:380,
+		infoarea:{
+			//情報表示場所
+			x:380,	//左端
+			scorey:80,	//スコア表示の開始位置
+			scoredeltay:25,	//スコア1つごとの移動距離
+			scorepointy:250,	//合計スコア表示
+			//時間表示
+			timeinfo:true,//時間を表示するか
+			timey: 280,
+		},
 		//スコア名前
 		scorename:{
 			excellent:"(ﾟ∀ﾟ)ｷﾀｰ!!",
@@ -741,8 +751,6 @@ OnigiriHost.prototype={
 			space_data:"images/arrow_space.png",
 		},
 		
-		//時間を表示するか
-		timeinfo:true,
 		//オンラインsettings
 		minPlayers:1,	//最小同時プレイ人数
 		maxPlayers:2,	//最大同時プレイ人数
@@ -1223,6 +1231,8 @@ function GamePanel(game,event,param){
 		freezegood:0,
 		freezebad:0,
 	};
+	this.scorepoint=0;	//合計スコア
+	//this.pf_scorenow=0;	//現在の合計スコア
 	//ノルマ
 	this.normapoint=h.norma.init;	//最初
 	//演奏データ
@@ -1233,7 +1243,6 @@ function GamePanel(game,event,param){
 
 	loadHumen();
 	//ゲーム開始要求
-	console.log(parent.mediaReady);
 	if(parent.mediaReady){
 		parent.event.emit("ready");
 	}else{
@@ -1478,6 +1487,8 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 	//h: header
 	getscore:function(scorename,h){
 		this.score[scorename]++;
+		this.scorepoint+=h.scorevalue[scorename];
+		//this.pf_scorenow+=h.scorevalue.excellent;
 		this.normapoint+=h.norma.score[scorename];
 		if(this.normapoint>h.norma.max)this.normapoint=h.norma.max;
 		if(this.normapoint<0)this.normapoint=0;
@@ -1782,18 +1793,21 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		}
 		//スコア
 		ctx.font=h.font.score;
-		var i=0;
+		var i=0, area=h.infoarea;
 		for(var x in this.score){
 			//g.writebi(ctx,h.fontinfo.score[x],h.scorename[x]+" "+score[x]);
 			ctx.fillStyle=h.color.score[x];
 			//hard coding
-			ctx.fillText(h.scorename[x]+" "+this.score[x],h.infox,80+i*25);
+			ctx.fillText(h.scorename[x]+" "+this.score[x],area.x,area.scorey+area.scoredeltay*i);
 			i++;
 		}
-		if(h.timeinfo){
+		//光景スコア
+		ctx.fillStyle=h.color.color;
+		ctx.fillText(this.scorepoint+" / "+this.pf_score, area.x, area.scorepointy);
+
+		if(area.timeinfo){
 			//時間
-			ctx.fillStyle=h.color.color;
-			ctx.fillText(timeString(audio.currentTime)+" / "+timeString(audio.duration),h.infox,280);
+			ctx.fillText(timeString(audio.currentTime)+" / "+timeString(audio.duration),area.x,area.timey);
 		}
 		//エッフェクト
 		var ef=store.effects;
