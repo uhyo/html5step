@@ -12,7 +12,7 @@ var http_wrap=http.createServer(srv);
 var app=uhyoooooo.createServer(http_wrap);
 http_wrap.listen(8080);
 
-app.init("step.js",{
+app.init(["step.js","stepstarter.js"],{
 	title:"html5step",
 });
 

@@ -3,7 +3,7 @@ function Onigiri(){
 	this.game=null;
 }
 Onigiri.prototype={
-	init:function(){
+	init:function(viewcallback){
 		var game=this.game=new Game();
 		var t=this;
 		
@@ -97,7 +97,7 @@ Onigiri.prototype={
 				});
 			});
 		});
-		game.init(Game.ClientDOMView);
+		game.init(Game.ClientDOMView,viewcallback);
 		game.start();
 	},
 };
@@ -2040,6 +2040,3 @@ GonePanel.prototype=Game.util.extend(ChildPanel,{
 		host.writebi(ctx,h.fontinfo.rank,"GONE");
 	},
 });
-// ゲーム開始
-var o=new Onigiri;
-o.init();
