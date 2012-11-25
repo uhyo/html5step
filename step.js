@@ -318,6 +318,7 @@ OnigiriHost.prototype={
 							if(!m){
 								media.currentTime=tim;
 							}
+							media.muted=false;
 							media.play();
 						});
 					}.bind(this));
@@ -401,6 +402,8 @@ OnigiriHost.prototype={
 		this.event.on("start",function(){
 			//タイムライン開始（オーディオ開始）
 			var timer=t.mediaTimer;
+			//時間までは止めておく
+			store.mediaPlayer.reset();
 			timer.addFunc(0,function(){
 				//0になったらオーディオ開始
 				store.mediaPlayer.play(0);
@@ -905,7 +908,6 @@ PlayerPanel.prototype={
 			//プレイ時は止める
 			au.addEventListener("play",function handler(e){
 				au.pause();
-				au.muted=false;
 				au.removeEventListener("play",handler,false);
 			},false);
 			au.play();
