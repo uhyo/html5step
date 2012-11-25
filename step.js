@@ -1,6 +1,7 @@
 //ゲーム初期化?
-function Onigiri(){
+function Onigiri(headerfile){
 	this.game=null;
+	this.headerfile=headerfile || "header.json";
 }
 Onigiri.prototype={
 	init:function(viewcallback){
@@ -72,7 +73,7 @@ Onigiri.prototype={
 		game.event.on("gamestart",function(){
 			var host=game.add(OnigiriHost);
 			//host.event.emit("loadHeader","header.json");
-			game.readFile("header.json",function(data){
+			game.readFile(t.headerfile,function(data){
 				var j=JSON.parse(data);	//ヘッダーを読み込んだ
 				host.event.emit("loadHeader",j);
 			});
