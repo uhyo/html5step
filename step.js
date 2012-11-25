@@ -501,7 +501,7 @@ OnigiriHost.prototype={
 	//default Header
 	defaultHeader:{
 		fps:60,	//60[frame/s] 変更非推奨（譜面が60fpsのため）
-		renderfps:"r60",	//描画のフレームレート r・・・animationRequestFrame使用
+		renderfps:60,	//描画のフレームレート(requestAnimationFrame使えない場合)
 		speedlock:1,//デフォルトスピード
 		chars:{
 			up_data:"↑",
@@ -1547,7 +1547,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 							clearInterval(timerid);
 						}
 					};
-				})(f);
+				})(h.renderfps-0);
 			}
 			//描画準備
 			var canvas=store.canvas;
