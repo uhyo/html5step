@@ -381,7 +381,8 @@ OnigiriHost.prototype={
 				this._multi("ended",function(media){return media.ended},callback);
 			};
 			//自分は横2つ分の幅
-			div.style.width=(h.canvas.x*2)+"px";
+			var widelength= game.env==="standalone" ? 1 : Math.min(h.maxPlayers,2) || 1;
+			div.style.width=(h.canvas.x*widelength)+"px";
 			//読み込めたらmediaReadyを報告する
 			if(t.state===t.STATE_PLAYING){
 				//すでに開始していたら追いつく
@@ -1581,7 +1582,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			store.flow_speed=1;
 			var result;
 			if(result=parent.config.Speed.match(/^x(\d+(?:\.\d+)?)/)){
-				flow_speed=parseFloat(result[1]);
+				store.flow_speed=parseFloat(result[1]);
 			}
 			store.coll_sut=parseInt(parent.config.Correction);
 			//エフェクト
