@@ -1026,7 +1026,20 @@ TitlePanel.prototype=Game.util.extend(ChildPanel,{
 		});
 
 		function khandler(dir,c){
-			if(dir==="up"){
+			if(dir==="space"){
+				//Space
+				if(t.index==-1){
+					//Key Config
+					t.parent.openPanel(game,"keyconfig");
+				}else if(t.index==-2){
+					//Config
+					t.parent.openPanel(game,"config");
+				}else{
+					t.parent.openPanel(game,"game",{modeindex:t.index});
+					//ゲームの準備をさせる
+				}
+				return;
+			}else if(dir==="up"){
 				//↑
 				if(t.index>=0){
 					t.index=Math.max(0,t.index-1);
@@ -1044,18 +1057,6 @@ TitlePanel.prototype=Game.util.extend(ChildPanel,{
 				//←→
 				if(t.index>=0)t.index=-1;
 				else t.index=0;
-			}else if(dir==="space"){
-				//Space
-				if(t.index==-1){
-					//Key Config
-					t.parent.openPanel(game,"keyconfig");
-				}else if(t.index==-2){
-					//Config
-					t.parent.openPanel(game,"config");
-				}else{
-					t.parent.openPanel(game,"game",{modeindex:t.index});
-					//ゲームの準備をさせる
-				}
 			}else{
 				return;
 			}
