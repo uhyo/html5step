@@ -443,7 +443,7 @@ OnigiriHost.prototype={
 						ca.height=i.naturalHeight;
 						var cx=ca.getContext('2d');
 						cx.drawImage(i,0,0);
-						arrow_images[x]=cx;
+						arrow_images[x]=ca;
 					}).bind(this);
 
 					i.src=arrowImage[x];
@@ -457,7 +457,8 @@ OnigiriHost.prototype={
 		if(h){
 			//子どもたちを入れる
 			for(var i=0,l=this.users.length;i<l;i++){
-				d.appendChild(view.render(this.users[i]));
+				var r=view.render(this.users[i]);
+				d.appendChild(r);
 			}
 		}
 	},
@@ -494,7 +495,7 @@ OnigiriHost.prototype={
 	drawArrow:function(ctx,x,y,arrowname,arrow_images){
 		//矢印を描画
 		var h=this.header;
-		if(h.arrowType=="image" || h.arrowType=="grayimage"){
+		if(h.arrowType==="image" || h.arrowType==="grayimage"){
 			var img=arrow_images[arrowname];
 			ctx.drawImage(img,x,y-img.height);
 		}else{
@@ -1385,10 +1386,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			for(var i=0,l=coms.length;i<l;i++){
 				var co=coms[i];
 				if(co.frame===frame){
-					//目的のやつだ!
+				///目的のやつだ!
 					coms.splice(i,1);
 					i--,l--;
-					t.speed=speed;
 					break;
 				}
 			}
@@ -1398,56 +1398,12 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			event.emit("color_data",obj);
 		});
 		event.on("color_data",function(obj){
-			var frame=obj.frame, setcolor=obj.setcolor;
+			var frame=obj.frame, setcolor=obj.setcolor, color=obj.color;
 			var h=host.header, coms=t.coms;
 			for(var i=0,l=coms.length;i<l;i++){
 				var co=coms[i];
-				var color=co.color;
 				if(co.frame===frame && co.setcolor===setcolor){
-					//目的のやつだ!
-					switch(setcolor){
-						case 0: h.color.arrow["left_data"]=color;break;
-						case 2: h.color.arrow["down_data"]=color;break;
-						case 3: h.color.arrow["space_data"]=color;break;
-						case 4: h.color.arrow["up_data"]=color;break;
-						case 6: h.color.arrow["right_data"]=color;break;
-
-						case 36: h.color.freezearrow["space_data"]=color;break;
-						case 37: h.color.freezeband["space_data"]=color;break;
-						case 46: h.color.freezehitarrow["space_data"]=color;break;
-						case 47: h.color.freezehitband["space_data"]=color;break;
-						case 53: h.color.freezearrow["space_data"]=h.color.freezeband["space_data"]=color;break;
-						case 58: h.color.freezehitarrow["space_data"]=h.color.freezehitband["space_data"]=color;break;
-
-						default:	//一括系
-								 var pa=({
-									 20:[h.color.arrow],
-									 30:[h.color.freezearrow],
-									 31:[h.color.freezeband],
-									 40:[h.color.freezehitarrow],
-									 41:[h.color.freezehitband],
-									 50:[h.color.freezearrow,h.color.freezeband],
-									 55:[h.color.freezehitarrow,h.color.freezehitband],
-									 60:[h.color.freezearrow,h.color.freezeband],
-									 61:[h.color.freezehitarrow,h.color.freezehitband],
-
-									 100:[h.color.arrow],
-								 })[setcolor];
-
-								 var datas=["left_data","down_data","up_data","right_data"];
-
-								 if(setcolor===100 || setcolor===60 || setcolor===61){
-									 datas[4]="space_data";
-								 }
-								 if(!pa)break;
-
-								 datas.forEach(function(x){
-									 pa.forEach(function(y){
-										 y[x]=color;
-									 });
-								 });
-								 break;
-					}
+					//目的のやつだ!(でもここでは消すだけ)
 					coms.splice(i,1);
 					i--,l--;
 					break;
@@ -1558,6 +1514,41 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			var ctx=canvas.getContext('2d');
 
 			var dobj=host.modes[t.modeindex];
+			//倍速
+			store.flow_speed=1;
+			var result;
+			if(result=parent.config.Speed.match(/^x(\d+(?:\.\d+)?)/)){
+				store.flow_speed=parseFloat(result[1]);
+			}
+			//フロー情報を作成する
+			store.infoflow=[];
+			store.makeInfoflow=function(frame,flow_speed,arrow){
+				var before=store.infoflow[store.infoflow.length-1] || {};
+				return {
+					frame:frame || before.frame || 0,
+					flow_speed:flow_speed || before.flow_speed,
+					arrow:arrow || before.arrow,
+				};
+			};
+			//カラー情報をコピーするメソッド
+			store.copyArrowColorInfo=function(){
+				var obj= {
+					arrow:Game.util.clone(h.color.arrow),
+					freezearrow:Game.util.clone(h.color.freezearrow),
+					freezehitarrow:Game.util.clone(h.color.freezehitarrow),
+					freezeband:Game.util.clone(h.color.freezeband),
+					freezehitband:Game.util.clone(h.color.freezehitband),
+				};
+				if(h.arrowType==="grayimage"){
+					obj.arrow_images=t.getArrowImage(h,store,sth);
+				}else if(h.arrowType==="image"){
+					obj.arrow_images=sth.arrow_images;
+				}
+				return obj;
+			};
+			//矢印フロー情報
+			store.infoflow.push(store.makeInfoflow(0,dobj.speedlock,store.copyArrowColorInfo()));
+
 			store.difStep=dobj.difStep;
 			var arrowwidths=store.arrowwidths={};
 			["left_data","up_data","right_data","down_data"].forEach(function(x){
@@ -1578,13 +1569,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			store.background= h.mediaType==="video" ? store.audio :
 			                h.mediaType==="audioWithImage" ? g.image : null;
 			//画像セット!
-			t.setArrowImage(h,store,sth);
-			//倍速
-			store.flow_speed=1;
-			var result;
-			if(result=parent.config.Speed.match(/^x(\d+(?:\.\d+)?)/)){
-				store.flow_speed=parseFloat(result[1]);
-			}
+			//t.setArrowImage(h,store,sth);
 			store.coll_sut=parseInt(parent.config.Correction);
 			//エフェクト
 			store.effects=[];
@@ -1596,9 +1581,59 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				}
 				store.effects.push(new ScoreEffect(obj.x,obj.y,obj.score,h));
 			});
-			//矢印色変更があった
-			user.event.on("color_data",function(){
-				t.setArrowImage(h,store,sth);
+			//矢印色変更があった(color_data変更よりも後にくることを期待)
+			ev.on("color_data",function(obj){
+				var frame=obj.frame, setcolor=obj.setcolor, color=obj.color;
+				//内部的に独自に変更
+				switch(setcolor){
+					case 0: h.color.arrow["left_data"]=color;break;
+					case 2: h.color.arrow["down_data"]=color;break;
+					case 3: h.color.arrow["space_data"]=color;break;
+					case 4: h.color.arrow["up_data"]=color;break;
+					case 6: h.color.arrow["right_data"]=color;break;
+
+					case 36: h.color.freezearrow["space_data"]=color;break;
+					case 37: h.color.freezeband["space_data"]=color;break;
+					case 46: h.color.freezehitarrow["space_data"]=color;break;
+					case 47: h.color.freezehitband["space_data"]=color;break;
+					case 53: h.color.freezearrow["space_data"]=h.color.freezeband["space_data"]=color;break;
+					case 58: h.color.freezehitarrow["space_data"]=h.color.freezehitband["space_data"]=color;break;
+
+					default:	//一括系
+							 var pa=({
+								 20:[h.color.arrow],
+								 30:[h.color.freezearrow],
+								 31:[h.color.freezeband],
+								 40:[h.color.freezehitarrow],
+								 41:[h.color.freezehitband],
+								 50:[h.color.freezearrow,h.color.freezeband],
+								 55:[h.color.freezehitarrow,h.color.freezehitband],
+								 60:[h.color.freezearrow,h.color.freezeband],
+								 61:[h.color.freezehitarrow,h.color.freezehitband],
+
+								 100:[h.color.arrow],
+							 })[setcolor];
+
+							 var datas=["left_data","down_data","up_data","right_data"];
+
+							 if(setcolor===100 || setcolor===60 || setcolor===61){
+								 datas[4]="space_data";
+							 }
+							 if(!pa)break;
+
+							 datas.forEach(function(x){
+								 pa.forEach(function(y){
+									 y[x]=color;
+								 });
+							 });
+							 break;
+				}
+				store.infoflow.push(store.makeInfoflow(obj.frame,null,store.copyArrowColorInfo()));
+			});
+			ev.on("speed_change",function(obj){
+				//すP度変更
+				store.flow_speed=obj.speed;
+				store.infoflow.push(store.makeInfoflow(obj.frame,obj.speed,null));
 			});
 
 			//解除の用意
@@ -1725,6 +1760,23 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		var coms=this.coms;
 		if(!coms)return;	//まだない!!!
 
+		//矢印情報
+		var arrowinfo, arrowinfoindex=0, infoflowNextframe=Infinity;
+		arrowinfo=store.infoflow[0];
+		if(store.infoflow[1]){
+			infoflowNextframe=store.infoflow[1].frame;
+			while(store.infoflow[1] && store.infoflow[1].frame<minf){
+				//もはやこれは消していい
+				store.infoflow=store.infoflow.slice(1);
+				arrowinfo=store.infoflow[0];
+				if(store.infoflow[1]){
+					infoflowNextframe=store.infoflow[1].frame;
+				}else{
+					infoflowNextframe=Infinity;
+				}
+			}
+		}
+		//console.log(arrowinfo.frame,nowf);
 		for(var i=0,l=coms.length;i<l;i++){
 			//矢印ひとつひとつ
 			var c=coms[i];
@@ -1739,24 +1791,38 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				//getscore(c.freeze ? "freezebad" : "miss");
 				continue;
 			}
-			if(c.frame<nowf){
-				if(c.type==="speed_change" && !c.done){
-					//speed change
-					this.user.event.emit("speed_change",{
-						frame:c.frame,
-						speed:c.speed,
-					});
-					c.done=true;	//処理済みマーク
-					//speed=c.speed;	//スピード変更
-				}else if(c.type==="color_data" && !c.done){
-					//色変更
-					this.user.event.emit("color_data",{
-						frame:c.frame,
-						setcolor:c.setcolor,
-					});
-					c.done=true;	//処理済みマーク
-					//if(h.arrowType==="grayimage")this.setArrowImage();
+			//矢印情報更新
+			while(infoflowNextframe<=c.frame){
+				arrowinfoindex++;
+				arrowinfo=store.infoflow[arrowinfoindex];
+				if(store.infoflow[arrowinfoindex+1]){
+					//まだある
+					infoflowNextframe=store.infoflow[arrowinfoindex+1].frame;
+				}else{
+					//もうない
+					infoflowNextframe=Infinity;
 				}
+			}
+			//console.log(arrowinfo.frame);
+			var arrowcolor=arrowinfo.arrow;
+			//出てきたタイミングで即座に実行(開始時期保存)
+			if(c.type==="speed_change" && !c.done){
+				//speed change
+				this.user.event.emit("speed_change",{
+					frame:c.frame,
+					speed:c.speed,
+				});
+				c.done=true;	//処理済みマーク
+				//speed=c.speed;	//スピード変更
+			}else if(c.type==="color_data" && !c.done){
+				//色変更
+				this.user.event.emit("color_data",{
+					frame:c.frame,
+					setcolor:c.setcolor,
+					color:c.color,
+				});
+				c.done=true;	//処理済みマーク
+				//if(h.arrowType==="grayimage")this.setArrowImage();
 			}
 			if(c.freeze && c.hit && c.end<=nowf){
 				// 突破したのでOK
@@ -1770,30 +1836,30 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			if(!h.chars[c.type])continue;
 
 			var spp= p.config.Reverse=="on" ? -sp : sp;	//反転処理
-			spp *= flow_speed;	//スピード処理も
+			spp *= arrowinfo.flow_speed;	//スピード処理も
 			ctx.font=h.font[c.type];
 			if(c.freeze){
 				//フリーズアロー！
 				if(c.hit){
-					ctx.fillStyle=h.color.freezehitband[c.type];	//帯
+					ctx.fillStyle=arrowcolor.freezehitband[c.type];	//帯
 				}else{
-					ctx.fillStyle=h.color.freezeband[c.type];	//帯
+					ctx.fillStyle=arrowcolor.freezeband[c.type];	//帯
 				}
 				ctx.fillRect(h.pos[c.type],arrowy+(c.frame-nowf)*spp-20,store.arrowwidths[c.type],(c.end-c.frame)*spp+20);	//hard coding
 				if(c.hit){
-					ctx.fillStyle=h.color.freezehitarrow[c.type];
+					ctx.fillStyle=arrowcolor.freezehitarrow[c.type];
 				}else{
-					ctx.fillStyle=h.color.freezearrow[c.type];
+					ctx.fillStyle=arrowcolor.freezearrow[c.type];
 				}
-				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp,c.type,sth.arrow_images);
+				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp,c.type,arrowcolor.arrow_images);
 				//ctx.fillText(h.chars[c.type],h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp);
-				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.end-nowf)*spp,c.type,sth.arrow_images);
+				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.end-nowf)*spp,c.type,arrowcolor.arrow_images);
 				//ctx.fillText(h.chars[c.type],h.pos[c.type] || 0,arrowy+(c.end-nowf)*spp);
 			}else{
-				ctx.fillStyle=h.color.arrow[c.type];
+				ctx.fillStyle=arrowcolor.arrow[c.type];
 				//console.log(h.color.arrow[c.type]);
 				//ctx.fillText(h.chars[c.type] || "undef",h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp);
-				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp,c.type,sth.arrow_images);
+				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp,c.type,arrowcolor.arrow_images);
 			}
 		}
 		//スコア
@@ -1851,17 +1917,17 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			return m+":"+("0"+(Math.floor(sec)%60)).slice(-2);
 		}
 	},
-	//矢印の画像更新
-	setArrowImage:function(h,store,sth){
-		if(h.arrowType!="grayimage")return;
+	//矢印の画像を得る
+	//store: Gamepanelのstore, sth:OnigiriHostのstore
+	getArrowImage:function(h,store,sth){
+		var resultobj={};
 		["left_data","down_data","up_data","right_data","space_data"].forEach(function(n){
 			//h.color.arrow
-			var c=sth.arrow_images[n];
-			if(!c.getContext){
-				c=sth.arrow_images[n]=sth.arrow_raw_images[n].ownerDocument.createElement("canvas");
-				c.width=sth.arrow_raw_images[n].naturalWidth;
-				c.height=sth.arrow_raw_images[n].naturalHeight;
-			}
+			var c;	//新しいキャンバス作る
+			c=sth.arrow_raw_images[n].ownerDocument.createElement("canvas");
+			c.width=sth.arrow_raw_images[n].naturalWidth;
+			c.height=sth.arrow_raw_images[n].naturalHeight;
+			resultobj[n]=c;
 			var cx=c.getContext('2d');
 			//矢印のキャンバス
 			cx.drawImage(sth.arrow_raw_images[n],0,0);
@@ -1912,6 +1978,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			}
 			cx.putImageData(output,0,0);
 		});
+		return resultobj;
 	},
 	//譜面をロードして配列を返す
 	loadHumen:function(obj){
