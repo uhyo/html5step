@@ -502,6 +502,15 @@ OnigiriHost.prototype={
 			ctx.fillText(h.chars[arrowname],x,y);
 		}
 	},
+	//util
+	deepCopy:function(obj){
+		if(("object"!==typeof obj)||(!obj))return obj;
+		var result=Object.create(Object.getPrototypeOf(obj));
+		for(var i in obj){
+			result[i]=this.deepCopy(obj[i]);
+		}
+		return result;
+	},
 
 	//default Header
 	defaultHeader:{
@@ -1286,8 +1295,10 @@ function GamePanel(game,event,param){
 GamePanel.prototype=Game.util.extend(ChildPanel,{
 	init:function(game,event,param){
 		var user=this.user, t=this, parent=this.parent, host=parent.host;
+		//今回登録したリスナたち（後処理用）
+		var myListeners={};
 		//矢印ヒット！
-		user.event.on("keyinput",function(obj){
+		user.event.on("keyinput",myListeners["keyinput"]=function(obj){
 			event.emit("keyinput",obj);
 		});
 		event.on("keyinput",function(obj){
@@ -1311,7 +1322,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 						break;
 					}
 					if(!co.freeze){
-						t.getscore(sc,h);
+						t.getscore(sc,h,game);
 						//effects.push(new ScoreEffect(h.pos[co.type],h.arrowy,sc));
 						event.emit("effect",{
 							x:h.pos[co.type],
@@ -1329,7 +1340,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			}
 		});
 		//矢印ロスト!
-		user.event.on("lose",function(obj){
+		user.event.on("lose",myListeners["lose"]=function(obj){
 			event.emit("lose",obj);
 		});
 		event.on("lose",function(obj){
@@ -1342,7 +1353,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 					coms.splice(i,1);
 					i--,l--;
 					var sc= co.freeze ? "freezebad" : "miss";
-					t.getscore(sc,h);
+					t.getscore(sc,h,game);
 					event.emit("effect",{
 						x:h.pos[co.type],
 						y:h.arrowy,
@@ -1353,7 +1364,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			}
 		});
 		//フリーズヒット!
-		user.event.on("freezeinput",function(obj){
+		user.event.on("freezeinput",myListeners["freezeinput"]=function(obj){
 			event.emit("freezeinput",obj);
 		});
 		event.on("freezeinput",function(obj){
@@ -1364,7 +1375,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				if(co.frame===targetframe && co.type===type && co.freeze && co.hit){
 					//目的のやつだ!
 					var sc= co.end-5<=frame ? "freezegood" : "freezebad";
-					t.getscore(sc,h);
+					t.getscore(sc,h,game);
 					event.emit("effect",{
 						x:h.pos[co.type],
 						y:h.arrowy,
@@ -1377,7 +1388,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			}
 		});
 		//すピード変更
-		user.event.on("speed_change",function(obj){
+		user.event.on("speed_change",myListeners["speed_change"]=function(obj){
 			event.emit("speed_change",obj);
 		});
 		event.on("speed_change",function(obj){
@@ -1394,7 +1405,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			}
 		});
 		//色変更
-		user.event.on("color_data",function(obj){
+		user.event.on("color_data",myListeners["color_data"]=function(obj){
 			event.emit("color_data",obj);
 		});
 		event.on("color_data",function(obj){
@@ -1410,9 +1421,16 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				}
 			}
 		});
+		//後処理
+		event.on("die",function(){
+			for(var i in myListeners){
+				user.event.removeListener(i,myListeners[i]);
+			}
+		});
 
 	},
-	showResult:function(game){
+	showResult:function(game,specialflag){
+		//specialflag: "fail"=failにする
 		//結果を表示する
 		var parent=this.parent, host=parent.host, h=host.header;
 		var score=this.score;	//スコアオブジェクト
@@ -1437,6 +1455,9 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			rank=h.rankspecial.fullcomplete;
 		}
 		//失敗したときはh.rankspecial.fail
+		if(specialflag==="fail"){
+			rank=h.rankspecial.fail;
+		}
 		//結果を表示してもらう
 		parent.openPanel(game,"result",{
 			score:score,
@@ -1446,13 +1467,19 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		});
 	},
 	//h: header
-	getscore:function(scorename,h){
+	getscore:function(scorename,h,game){
 		this.score[scorename]++;
 		this.scorepoint+=h.scorevalue[scorename];
 		//this.pf_scorenow+=h.scorevalue.excellent;
 		this.normapoint+=h.norma.score[scorename];
 		if(this.normapoint>h.norma.max)this.normapoint=h.norma.max;
 		if(this.normapoint<0)this.normapoint=0;
+		if(this.normapoint<=h.norma.fail){
+			//下限突破
+			//this.parent.host.event.emit("endgame");
+			this.parent.event.emit("mediaEnded");
+			this.showResult(game,"fail");
+		}
 	},
 	renderInit:function(view,game){
 		var t=this, user=this.user, k=this.user.keys,parent=this.parent, host=parent.host, ev=this.event, store=view.getStore(parent), sth=view.getStore(host);
@@ -1539,12 +1566,16 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 					freezeband:Game.util.clone(h.color.freezeband),
 					freezehitband:Game.util.clone(h.color.freezehitband),
 				};
-				if(h.arrowType==="grayimage"){
-					obj.arrow_images=t.getArrowImage(h,store,sth);
-				}else if(h.arrowType==="image"){
-					obj.arrow_images=sth.arrow_images;
-				}
+				obj.arrow_images=store.getArrowImages(h.color);
 				return obj;
+			};
+			store.getArrowImages=function(arrowimages){
+				if(h.arrowType==="grayimage"){
+					return t.getArrowImage(h,store,sth,arrowimages);
+				}else if(h.arrowType==="image"){
+					return sth.arrow_images;
+				}
+				return null;
 			};
 			//矢印フロー情報
 			store.infoflow.push(store.makeInfoflow(0,dobj.speedlock,store.copyArrowColorInfo()));
@@ -1584,34 +1615,40 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			//矢印色変更があった(color_data変更よりも後にくることを期待)
 			ev.on("color_data",function(obj){
 				var frame=obj.frame, setcolor=obj.setcolor, color=obj.color;
+				//最後のやつを変更
+				var arrow={};
+				var lastinfoarrow=store.infoflow[store.infoflow.length-1].arrow;
+				["arrow","freezearrow","freezehitarrow","freezeband","freezehitband"].forEach(function(x){
+					arrow[x]=host.deepCopy(lastinfoarrow[x]);
+				});
 				//内部的に独自に変更
 				switch(setcolor){
-					case 0: h.color.arrow["left_data"]=color;break;
-					case 2: h.color.arrow["down_data"]=color;break;
-					case 3: h.color.arrow["space_data"]=color;break;
-					case 4: h.color.arrow["up_data"]=color;break;
-					case 6: h.color.arrow["right_data"]=color;break;
+					case 0: arrow.arrow["left_data"]=color;break;
+					case 2: arrow.arrow["down_data"]=color;break;
+					case 3: arrow.arrow["space_data"]=color;break;
+					case 4: arrow.arrow["up_data"]=color;break;
+					case 6: arrow.arrow["right_data"]=color;break;
 
-					case 36: h.color.freezearrow["space_data"]=color;break;
-					case 37: h.color.freezeband["space_data"]=color;break;
-					case 46: h.color.freezehitarrow["space_data"]=color;break;
-					case 47: h.color.freezehitband["space_data"]=color;break;
-					case 53: h.color.freezearrow["space_data"]=h.color.freezeband["space_data"]=color;break;
-					case 58: h.color.freezehitarrow["space_data"]=h.color.freezehitband["space_data"]=color;break;
+					case 36: arrow.freezearrow["space_data"]=color;break;
+					case 37: arrow.freezeband["space_data"]=color;break;
+					case 46: arrow.freezehitarrow["space_data"]=color;break;
+					case 47: arrow.freezehitband["space_data"]=color;break;
+					case 53: arrow.freezearrow["space_data"]=arrow.freezeband["space_data"]=color;break;
+					case 58: arrow.freezehitarrow["space_data"]=arrow.freezehitband["space_data"]=color;break;
 
 					default:	//一括系
 							 var pa=({
-								 20:[h.color.arrow],
-								 30:[h.color.freezearrow],
-								 31:[h.color.freezeband],
-								 40:[h.color.freezehitarrow],
-								 41:[h.color.freezehitband],
-								 50:[h.color.freezearrow,h.color.freezeband],
-								 55:[h.color.freezehitarrow,h.color.freezehitband],
-								 60:[h.color.freezearrow,h.color.freezeband],
-								 61:[h.color.freezehitarrow,h.color.freezehitband],
+								 20:[arrow.arrow],
+								 30:[arrow.freezearrow],
+								 31:[arrow.freezeband],
+								 40:[arrow.freezehitarrow],
+								 41:[arrow.freezehitband],
+								 50:[arrow.freezearrow,arrow.freezeband],
+								 55:[arrow.freezehitarrow,arrow.freezehitband],
+								 60:[arrow.freezearrow,arrow.freezeband],
+								 61:[arrow.freezehitarrow,arrow.freezehitband],
 
-								 100:[h.color.arrow],
+								 100:[arrow.arrow],
 							 })[setcolor];
 
 							 var datas=["left_data","down_data","up_data","right_data"];
@@ -1628,7 +1665,8 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 							 });
 							 break;
 				}
-				store.infoflow.push(store.makeInfoflow(obj.frame,null,store.copyArrowColorInfo()));
+				arrow.arrow_images=store.getArrowImages(arrow);
+				store.infoflow.push(store.makeInfoflow(obj.frame,null,arrow));
 			});
 			ev.on("speed_change",function(obj){
 				//すP度変更
@@ -1725,6 +1763,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			//まだ始まっていない
 			return;
 		}
+		console.log("render!");
 		//まず真っ黒に塗る
 		var audio=store.audio;
 		ctx.fillStyle=h.color.background;
@@ -1776,7 +1815,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				}
 			}
 		}
-		//console.log(arrowinfo.frame,nowf);
 		for(var i=0,l=coms.length;i<l;i++){
 			//矢印ひとつひとつ
 			var c=coms[i];
@@ -1789,6 +1827,10 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				});
 				l=coms.length;	//hard
 				//getscore(c.freeze ? "freezebad" : "miss");
+				if(this.parent.ended){
+					//終了してしまった!FAIL対策
+					return;
+				}
 				continue;
 			}
 			//矢印情報更新
@@ -1803,7 +1845,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 					infoflowNextframe=Infinity;
 				}
 			}
-			//console.log(arrowinfo.frame);
 			var arrowcolor=arrowinfo.arrow;
 			//出てきたタイミングで即座に実行(開始時期保存)
 			if(c.type==="speed_change" && !c.done){
@@ -1857,7 +1898,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 				//ctx.fillText(h.chars[c.type],h.pos[c.type] || 0,arrowy+(c.end-nowf)*spp);
 			}else{
 				ctx.fillStyle=arrowcolor.arrow[c.type];
-				//console.log(h.color.arrow[c.type]);
 				//ctx.fillText(h.chars[c.type] || "undef",h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp);
 				host.drawArrow(ctx,h.pos[c.type] || 0,arrowy+(c.frame-nowf)*spp,c.type,arrowcolor.arrow_images);
 			}
@@ -1918,8 +1958,8 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 		}
 	},
 	//矢印の画像を得る
-	//store: Gamepanelのstore, sth:OnigiriHostのstore
-	getArrowImage:function(h,store,sth){
+	//store: Gamepanelのstore, sth:OnigiriHostのstore, arrowcolor:copyArrowColorInfoとかのやつ
+	getArrowImage:function(h,store,sth,arrowcolor){
 		var resultobj={};
 		["left_data","down_data","up_data","right_data","space_data"].forEach(function(n){
 			//h.color.arrow
@@ -1934,7 +1974,7 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 			var data=cx.getImageData(0,0,c.width,c.height);
 
 			var color={r:0,g:0,b:0};
-			cx.fillStyle=h.color.arrow[n];
+			cx.fillStyle=arrowcolor.arrow[n];
 			var st=cx.fillStyle;
 			var result;
 			//serialization of a color
@@ -1966,7 +2006,6 @@ GamePanel.prototype=Game.util.extend(ChildPanel,{
 							od[i+1]=dd[i]*color.g|0;
 							od[i+2]=dd[i]*color.b|0;
 							od[i+3]=dd[i+3];
-							//console.log(n,x,y,":",od[i],od[i+1],od[i+2]);
 						}
 					}else{
 						od[i]=dd[i];
@@ -2079,6 +2118,9 @@ ResultPanel.prototype=Game.util.extend(ChildPanel,{
 		var h=host.header;
 		var score=this.score, rank=this.rank;
 		
+		//まず真っ黒に塗る
+		ctx.fillStyle=h.color.background;
+		ctx.fillRect(0,0,canvas.width,canvas.height);
 		//ランク表示
 		host.writebi(ctx,h.fontinfo.rank,rank);
 		//スコア
